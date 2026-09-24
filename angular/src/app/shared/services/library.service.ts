@@ -681,45 +681,55 @@ export class LibraryService {
    * library state without replacing the whole list, preserving scroll position.
    */
   public async updateArtForGame(gameId: string) {
-    if (!this.currentDirectory) return;
+    await this.updateArtForGames([gameId]);
+  }
+
+  /**
+   * Re-reads artwork for several games in a single `/ART` folder scan and
+   * patches each game into the current library state in one pass. Used by the
+   * bulk artwork flow, which queues one job per game: refreshing per job would
+   * re-read the whole ART folder for every game, so the job queue defers the
+   * refresh and flushes once all queued games have been processed.
+   */
+  public async updateArtForGames(gameIds: string[]) {
+    if (!this.currentDirectory || gameIds.length === 0) return;
+    const targets = new Set(gameIds);
     const artFiles = await this.parseArtFiles(this.currentDirectory);
     const currentLibrary = this.librarySubject.getValue();
     const updatedLibrary = currentLibrary.map((game) => {
-      if (game.gameId === gameId) {
-        if (game.isPs1Launcher && game.ps1LauncherBoot) {
-          const bootName = game.ps1LauncherBoot;
-          return {
-            ...game,
-            art: artFiles
-              .filter((art: gameArt) => (bootName + '_' + (art.type || '')) === art.name)
-              .map((art: gameArt) => art),
-          };
-        }
-        if (game.system === 'PS1' && game.filename) {
-          const filenameNoExt = game.filename.replace(/\.[^./\\]+$/, '');
-          return {
-            ...game,
-            art: artFiles.filter(
-              (art: gameArt) => art.gameId === gameId || art.gameId === filenameNoExt,
-            ),
-          };
-        }
+      if (!targets.has(game.gameId)) return game;
+      if (game.isPs1Launcher && game.ps1LauncherBoot) {
+        const bootName = game.ps1LauncherBoot;
         return {
           ...game,
           art: artFiles
-            .filter((art: any) => art.gameId === gameId)
-            .map((art: any) => art),
+            .filter((art: gameArt) => (bootName + '_' + (art.type || '')) === art.name)
+            .map((art: gameArt) => art),
         };
       }
-      return game;
+      if (game.system === 'PS1' && game.filename) {
+        const filenameNoExt = game.filename.replace(/\.[^./\\]+$/, '');
+        return {
+          ...game,
+          art: artFiles.filter(
+            (art: gameArt) => art.gameId === game.gameId || art.gameId === filenameNoExt,
+          ),
+        };
+      }
+      return {
+        ...game,
+        art: artFiles
+          .filter((art: gameArt) => art.gameId === game.gameId)
+          .map((art: gameArt) => art),
+      };
     });
     this.librarySubject.next(updatedLibrary);
 
-    const updated = updatedLibrary.find((g) => g.gameId === gameId);
-    if (updated?.isPs1Launcher) {
+    for (const updated of updatedLibrary) {
+      if (!targets.has(updated.gameId) || !updated.isPs1Launcher) continue;
       this._logger.log(
         'libraryService',
-        `updateArtForGame: PS1 launcher "${updated.title}" matched ${updated.art?.length ?? 0} art file(s) via boot name "${updated.ps1LauncherBoot}"`
+        `updateArtForGames: PS1 launcher "${updated.title}" matched ${updated.art?.length ?? 0} art file(s) via boot name "${updated.ps1LauncherBoot}"`
       );
       if (updated.art?.length) {
         for (const a of updated.art) {

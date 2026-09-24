@@ -46,6 +46,23 @@ function screenshotCodeIndex(type: string): number {
   return match ? parseInt(match[1], 10) : -1;
 }
 
+/** Whether a type belongs to a single-select radio family (backgrounds). */
+function isSingleSelectCode(type: string): boolean {
+  return type.toUpperCase().startsWith('BG');
+}
+
+/** Max options selectable at once in a category: radio families keep one,
+   *  screenshot families keep at most the two OPL shows, everything else uses
+   *  the full list. */
+function categoryMaxSelectable(options: ArtworkOption[]): number {
+  if (options.length === 0) return 0;
+  if (options.every((o) => isSingleSelectCode(o.type))) return 1;
+  if (options.every((o) => isScreenshotCode(o.type))) {
+    return Math.min(options.length, MAX_SCREENSHOTS);
+  }
+  return options.length;
+}
+
 @Component({
   selector: 'app-artwork-wizard-dialog',
   imports: [LucideAngularModule],
@@ -90,18 +107,18 @@ export class ArtworkWizardDialogComponent {
       const single =
         catOptions.length > 0 &&
         catOptions.every((o) => this.isSingleSelectType(o.type));
+      // How many of this category's options can actually be selected at once
+      // (screenshots cap at the two OPL shows, radio families at one).
+      const maxSelectable = categoryMaxSelectable(catOptions);
       return {
         id,
         label,
         options: catOptions,
-        allSelected: single
-          ? selectedInCat.length > 0
-          : catOptions.length > 0 && selectedInCat.length === catOptions.length,
+        allSelected:
+          maxSelectable > 0 && selectedInCat.length >= maxSelectable,
         selectedCount: selectedInCat.length,
-        indeterminate: single
-          ? false
-          : selectedInCat.length > 0 &&
-            selectedInCat.length < catOptions.length,
+        indeterminate:
+          selectedInCat.length > 0 && selectedInCat.length < maxSelectable,
         savedCount: new Set(
           catOptions
             .filter((o) => o.alreadySaved)
@@ -303,21 +320,19 @@ export class ArtworkWizardDialogComponent {
     this.selected.set(this.normalizeSelection(next));
   }
 
-  /** Select or deselect every artwork type in a category. */
+  /** Select or deselect a category. "Select" picks the first maxSelectable
+   *  options (radio families one, screenshots the two OPL shows); deselect
+   *  clears every option in the category. */
   toggleCategory(category: ArtCategory): void {
     const next = new Set(this.selected());
-    const single = category.options.some((o) =>
-      this.isSingleSelectType(o.type),
-    );
     if (category.allSelected) {
       for (const option of category.options) next.delete(option.type);
-    } else if (single) {
-      // Backgrounds behave like a radio group: picking the category selects a
-      // single member, never the whole list.
-      for (const option of category.options) next.delete(option.type);
-      if (category.options.length > 0) next.add(category.options[0].type);
     } else {
-      for (const option of category.options) next.add(option.type);
+      const maxSelectable = categoryMaxSelectable(category.options);
+      for (const option of category.options) next.delete(option.type);
+      for (const option of category.options.slice(0, maxSelectable)) {
+        next.add(option.type);
+      }
     }
     this.selected.set(this.normalizeSelection(next));
   }

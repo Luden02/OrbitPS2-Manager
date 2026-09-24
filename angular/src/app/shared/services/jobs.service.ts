@@ -133,6 +133,12 @@ export class JobsService {
 
   private isProcessing = false;
 
+  /** Game ids of successful artwork jobs awaiting a single batched refresh.
+   *  The bulk flow queues one job per game; instead of re-reading the whole
+   *  ART folder for every finished game, the ids are accumulated here and
+   *  flushed once the whole queue drains. */
+  private pendingArtRefresh = new Set<string>();
+
   constructor(
     private readonly _logger: LogsService,
     private readonly _library: LibraryService,
@@ -208,6 +214,8 @@ export class JobsService {
     }
     const next = this.jobsSubject.value.find((j) => j.status === 'queued');
     if (!next) {
+      // Queue drained — flush any deferred artwork refresh in a single scan.
+      this.flushPendingArtRefresh();
       return;
     }
 
@@ -237,12 +245,15 @@ export class JobsService {
           finishedAt: Date.now(),
         });
         this._logger.log('jobsService', `Job succeeded: ${next.label}`);
-        // Artwork only touches one game's images — patch it in place so the
-        // library scroll position is preserved. Everything else changes the
-        // file set on disk and needs a full re-scan.
+        // Artwork only touches one game's images — defer the refresh until the
+        // queue drains so the whole `/ART` folder is scanned once per run
+        // (bulk flows queue one job per game and would re-read it every time).
+        // Everything else changes the file set on disk and needs a full
+        // re-scan, which supersedes any pending artwork refresh.
         if (next.type === 'artwork' && result?.artRefresh !== false) {
-          void this._library.updateArtForGame(next.gameId);
+          this.pendingArtRefresh.add(next.gameId);
         } else {
+          this.pendingArtRefresh.clear();
           this._library.refreshGamesFiles();
         }
       } else {
@@ -272,6 +283,19 @@ export class JobsService {
       this.isProcessing = false;
       // Process the rest of the queue on the next tick.
       setTimeout(() => void this.processNext(), 0);
+    }
+  }
+
+  /** Batch-refresh artwork for all games finished since the last flush, with a
+   *  single `/ART` folder scan instead of one per game. */
+  private flushPendingArtRefresh(): void {
+    if (this.pendingArtRefresh.size === 0) return;
+    const gameIds = [...this.pendingArtRefresh];
+    this.pendingArtRefresh.clear();
+    if (gameIds.length === 1) {
+      void this._library.updateArtForGame(gameIds[0]);
+    } else {
+      void this._library.updateArtForGames(gameIds);
     }
   }
 

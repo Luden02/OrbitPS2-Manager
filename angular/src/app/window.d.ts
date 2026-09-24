@@ -126,6 +126,7 @@ declare interface Window {
       system?: 'PS1' | 'PS2',
       saveAsName?: string,
       artTypes?: string[],
+      saveAsByType?: Record<string, string>,
     ) => Promise<any>;
 
     /** Check which of the given filenames exist in the art directory. */
@@ -133,6 +134,19 @@ declare interface Window {
       artDir: string,
       filenames: string[],
     ) => Promise<string[]>;
+
+    /**
+     * Download artwork for a game by resolving canonical asset slots against
+     * the database's variant chains (first available fallback variant is used
+     * and renamed to the canonical name).
+     */
+    downloadArtResolved: (
+      dirPath: string,
+      gameId: string,
+      system?: 'PS1' | 'PS2',
+      saveAsName?: string,
+      artSlots?: string[],
+    ) => Promise<any>;
 
     /** List the artwork actually available for a game in the art database. */
     listAvailableArt: (

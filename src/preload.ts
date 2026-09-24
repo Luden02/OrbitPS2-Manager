@@ -35,7 +35,8 @@ function buildLibraryAPI() {
       gameId: string,
       system?: "PS1" | "PS2",
       saveAsName?: string,
-      artTypes?: string[]
+      artTypes?: string[],
+      saveAsByType?: Record<string, string>
     ) =>
       ipcRenderer.invoke(
         "download-art-by-gameid",
@@ -43,10 +44,26 @@ function buildLibraryAPI() {
         gameId,
         system,
         saveAsName,
-        artTypes
+        artTypes,
+        saveAsByType
       ),
     checkArtFilesExist: (artDir: string, filenames: string[]) =>
       ipcRenderer.invoke("check-art-files-exist", artDir, filenames),
+    downloadArtResolved: (
+      dirPath: string,
+      gameId: string,
+      system?: "PS1" | "PS2",
+      saveAsName?: string,
+      artSlots?: string[]
+    ) =>
+      ipcRenderer.invoke(
+        "download-art-resolved",
+        dirPath,
+        gameId,
+        system,
+        saveAsName,
+        artSlots
+      ),
     listAvailableArt: (gameId: string, system?: "PS1" | "PS2") =>
       ipcRenderer.invoke("list-available-art", gameId, system),
 

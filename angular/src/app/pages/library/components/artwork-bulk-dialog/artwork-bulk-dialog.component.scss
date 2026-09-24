@@ -2,7 +2,7 @@
   display: block;
 }
 
-.abd-backdrop {
+.ab-backdrop {
   position: fixed;
   inset: 0;
   z-index: 50;
@@ -10,14 +10,17 @@
   backdrop-filter: blur(2px);
 }
 
-.abd-modal {
+.ab-modal {
   position: fixed;
   z-index: 51;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
   width: min(30rem, calc(100vw - 2rem));
-  max-height: calc(100vh - 4rem);
+  /* Fixed height so the dialog never resizes between sections — even when a
+     section has no eligible games and the body content is shorter. The
+     scrollable Asset types / Missing artwork zones absorb any overflow. */
+  height: min(45rem, calc(100vh - 4rem));
   display: flex;
   flex-direction: column;
   border-radius: 1rem;
@@ -25,6 +28,148 @@
   overflow: hidden;
 }
 
-.abd-body {
+.ab-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  overflow-wrap: break-word;
+}
+
+/* Scrollable zone holding the asset types and missing-artwork list; the scope
+   seg-tabs, plan summary and existing-artwork policy above stay fixed. */
+.ab-scroll {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
+}
+
+/* Per-game missing artwork list; scrolls independently so a long list never
+   grows the dialog body beyond its fixed height. */
+.ab-missing-list {
+  max-height: 12rem;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: oklch(50% 0.06 250 / 0.4) transparent;
+}
+
+.ab-missing-list::-webkit-scrollbar {
+  width: 5px;
+}
+
+.ab-missing-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ab-missing-list::-webkit-scrollbar-thumb {
+  background: oklch(50% 0.06 250 / 0.4);
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background-clip: content-box;
+}
+
+.ab-missing-list::-webkit-scrollbar-thumb:hover {
+  background: oklch(64% 0.12 245 / 0.6);
+  background-clip: content-box;
+}
+
+.ab-asset-type {
+  border: 1px solid transparent;
+  color: inherit;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.ab-asset-type:hover:not(.ab-selected) {
+  background: oklch(96% 0.005 250 / 0.35);
+}
+
+.ab-asset-type.ab-selected {
+  border-color: var(--color-primary, oklch(55% 0.2 256));
+  background: color-mix(
+    in oklch,
+    var(--color-primary, oklch(55% 0.2 256)) 12%,
+    transparent
+  );
+}
+
+.ab-asset-type:active:not(.ab-selected) {
+  transform: scale(0.97);
+}
+
+/* Model-driven radio-tile — same idea as .ab-box, for overwrite policy. */
+.ab-dot {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  margin-top: 0.15rem;
+  border-radius: 999px;
+  border: 1.5px solid oklch(50% 0.06 250 / 0.55);
+  background: oklch(96% 0.005 250 / 0.6);
+  position: relative;
+  transition: border-color 120ms ease;
+}
+
+.ab-dot.is-on {
+  border-color: var(--color-primary, oklch(55% 0.2 256));
+}
+
+.ab-dot.is-on::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: var(--color-primary, oklch(55% 0.2 256));
+}
+
+.ab-policy {
+  border: 1px solid transparent;
+}
+
+.ab-policy.ab-selected {
+  border-color: var(--color-primary, oklch(55% 0.2 256));
+  background: color-mix(
+    in oklch,
+    var(--color-primary, oklch(55% 0.2 256)) 12%,
+    transparent
+  );
+}
+
+.ab-policy-warn.ab-selected {
+  border-color: oklch(68% 0.16 65 / 0.5);
+  background: oklch(68% 0.16 65 / 0.12);
+}
+
+.ab-policy:active:not(.ab-selected) {
+  transform: scale(0.985);
+}
+
+/* Live progress log (running/done states). Grows to fill the fixed-height
+   body and scrolls on its own as new lines are appended. */
+.ab-log {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.5rem;
+  font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
+  font-size: 0.7rem;
+  line-height: 1.6;
+}
+
+.log-line {
+  display: flex;
+}
+
+.log-time {
+  flex-shrink: 0;
+  width: 4.2rem;
+  opacity: 0.35;
+  user-select: none;
+}
+
+.log-text {
+  overflow-wrap: break-word;
+  min-width: 0;
 }

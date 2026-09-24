@@ -35,7 +35,7 @@
       </label>
 
       <select
-        class="select select-sm w-40 bg-base-100/60"
+        class="select select-sm w-40"
         [value]="sortMode"
         (change)="setSortMode($any($event.target).value)"
       >
@@ -83,14 +83,12 @@
             tabindex="-1"
             class="dropdown-content menu glass-strong rounded-box z-10 mt-1 w-60 p-2 shadow-xl"
           >
-            @if (!isActive('APPS')) {
-              <li>
-                <a (click)="downloadAllArt()">
-                  <i-lucide name="image-down" size="16"></i-lucide>Download
-                  artwork for all games
-                </a>
-              </li>
-            }
+            <li>
+              <a (click)="openArtworkBulkDialog()">
+                <i-lucide name="image-down" size="16"></i-lucide>Download
+                artwork for all games
+              </a>
+            </li>
             @if (isActive('PS2')) {
               <li>
                 <a (click)="convertAllToZso()">
@@ -222,8 +220,7 @@
 
 @if (showArtworkBulkDialog) {
   <app-artwork-bulk-dialog
-    [gameCount]="artworkBulkTargets.length"
-    (confirm)="onArtworkBulkConfirm($event)"
+    [initialScope]="activeTab"
     (closed)="showArtworkBulkDialog = false"
   ></app-artwork-bulk-dialog>
 }

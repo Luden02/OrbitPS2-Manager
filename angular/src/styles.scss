@@ -330,10 +330,5 @@ app-root {
 }
 
 .fade-in {
-  // fill-mode intentionally omits "forwards": the "to" keyframe (opacity 1,
-  // translateY(0)) is identical to the element's un-animated resting state,
-  // and persisting it would leave `transform` set on the element forever —
-  // which makes it a CSS containing block for any `position: fixed`
-  // descendant (e.g. our modal dialogs), breaking their viewport centering.
-  animation: orbit-fade-in 0.25s ease;
+  animation: orbit-fade-in 0.25s ease both;
 }

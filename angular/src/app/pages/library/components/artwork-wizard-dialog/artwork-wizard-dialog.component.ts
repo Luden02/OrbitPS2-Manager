@@ -4,8 +4,11 @@ import { Game } from '@shared/types/game.type';
 import { JobsService } from '@shared/services/jobs.service';
 import { LibraryService } from '@shared/services/library.service';
 import {
-  ARTWORK_PRESETS,
+  ART_CATEGORIES,
+  artCategoryForType,
+  artSaveNameForType,
   artTypeLabel,
+  UNCATEGORIZED_LABEL,
 } from '@shared/constants/artwork-presets';
 
 interface ArtworkOption {
@@ -13,6 +16,34 @@ interface ArtworkOption {
   label: string;
   downloadUrl: string;
   alreadySaved: boolean;
+}
+
+interface ArtCategory {
+  id: string;
+  label: string;
+  options: ArtworkOption[];
+  allSelected: boolean;
+  selectedCount: number;
+  /** Some, but not all, options in this category are selected. */
+  indeterminate: boolean;
+  /** Distinct asset files of this category that already exist on disk. */
+  savedCount: number;
+}
+
+const SCREENSHOT_RE = /^SCR_(\d{1,2})$/i;
+
+/** How many screenshots Open PS2 Loader shows at most. */
+const MAX_SCREENSHOTS = 2;
+
+/** Whether a type is a database screenshot variant (`SCR_00`, `SCR_01`, …). */
+function isScreenshotCode(type: string): boolean {
+  return SCREENSHOT_RE.test(type);
+}
+
+/** Numeric index of a screenshot variant (`SCR_03` → 3); -1 if not one. */
+function screenshotCodeIndex(type: string): number {
+  const match = SCREENSHOT_RE.exec(type);
+  return match ? parseInt(match[1], 10) : -1;
 }
 
 @Component({
@@ -25,16 +56,76 @@ export class ArtworkWizardDialogComponent {
   readonly game = input.required<Game>();
   readonly closed = output<void>();
 
-  readonly presets = ARTWORK_PRESETS;
-  readonly artTypeLabel = artTypeLabel;
-
   readonly loading = signal(true);
   readonly errorMessage = signal<string | null>(null);
   readonly options = signal<ArtworkOption[]>([]);
   readonly selected = signal<Set<string>>(new Set());
   readonly skipExisting = signal(false);
 
+  /** Category ids the user has collapsed; everything else stays expanded. */
+  readonly collapsed = signal<Set<string>>(new Set());
+
   readonly selectedCount = computed(() => this.selected().size);
+
+  /** Count of distinct artwork files that already exist on disk. */
+  readonly savedCount = computed(
+    () =>
+      new Set(
+        this.options()
+          .filter((o) => o.alreadySaved)
+          .map((o) => artSaveNameForType(o.type)),
+      ).size,
+  );
+
+  /** Available artwork grouped by purpose; unknown types land in "Other". */
+  readonly categories = computed<ArtCategory[]>(() => {
+    const options = this.options();
+    const build = (
+      id: string,
+      label: string,
+      catOptions: ArtworkOption[],
+    ): ArtCategory => {
+      const selectedInCat = catOptions.filter((o) => this.isSelected(o.type));
+      // Backgrounds are single-select: OPL only reads one <gameID>_BG.png.
+      const single =
+        catOptions.length > 0 &&
+        catOptions.every((o) => this.isSingleSelectType(o.type));
+      return {
+        id,
+        label,
+        options: catOptions,
+        allSelected: single
+          ? selectedInCat.length > 0
+          : catOptions.length > 0 && selectedInCat.length === catOptions.length,
+        selectedCount: selectedInCat.length,
+        indeterminate: single
+          ? false
+          : selectedInCat.length > 0 &&
+            selectedInCat.length < catOptions.length,
+        savedCount: new Set(
+          catOptions
+            .filter((o) => o.alreadySaved)
+            .map((o) => artSaveNameForType(o.type)),
+        ).size,
+      };
+    };
+
+    const categories = ART_CATEGORIES.map((c) =>
+      build(
+        c.id,
+        c.label,
+        options.filter((o) => artCategoryForType(o.type) === c.id),
+      ),
+    ).filter((c) => c.options.length > 0);
+
+    const otherOptions = options.filter(
+      (o) => artCategoryForType(o.type) === undefined,
+    );
+    if (otherOptions.length > 0) {
+      categories.push(build('other', UNCATEGORIZED_LABEL, otherOptions));
+    }
+    return categories;
+  });
 
   constructor(
     private readonly _jobs: JobsService,
@@ -55,70 +146,286 @@ export class ArtworkWizardDialogComponent {
       : this.game().gameId;
   }
 
+  /**
+   * PS1 POPSLoader/RiptOPL VCDs only: the VCD title stem (filename without
+   * extension). Their art may be saved either as "<GameID>_<type>.png" or
+   * "<Title>_<type>.png", so both names have to be probed to detect what
+   * already exists.
+   */
+  private get ps1VcdStem(): string | undefined {
+    const g = this.game();
+    if (this.system !== 'PS1' || this.isPs1Launcher || !g.filename) {
+      return undefined;
+    }
+    return g.filename.replace(/\.[^./\\]+$/, '');
+  }
+
   async ngOnInit() {
     const g = this.game();
-    const result = await window.libraryAPI.listAvailableArt(g.gameId, this.system);
+    try {
+      const result = await window.libraryAPI.listAvailableArt(g.gameId, this.system);
 
-    if (!result?.success) {
-      this.errorMessage.set(result?.message || 'Failed to load available artwork.');
+      if (!result?.success) {
+        this.errorMessage.set(result?.message || 'Failed to load available artwork.');
+        this.loading.set(false);
+        return;
+      }
+
+      if (result.data.length === 0) {
+        this.errorMessage.set(result.message || 'No artwork available for this game yet.');
+        this.loading.set(false);
+        return;
+      }
+
+      const dirPath = this._library.currentDirectoryValue;
+      const localName = this.localName;
+      const ps1VcdStem = this.ps1VcdStem;
+      // Existing files are probed by their on-disk name, so backgrounds look
+      // for the OPL-compatible `<stem>_BG.png` file.
+      const fileNameFor = (stem: string, type: string) =>
+        `${stem}_${artSaveNameForType(type)}.png`;
+      const expectedFiles = result.data.flatMap((d) => {
+        const names = [fileNameFor(localName, d.type)];
+        if (ps1VcdStem) names.push(fileNameFor(ps1VcdStem, d.type));
+        return names;
+      });
+      const existing = dirPath
+        ? await window.libraryAPI.checkArtFilesExist(`${dirPath}/ART`, expectedFiles)
+        : [];
+      const existingSet = new Set(existing);
+
+      this.options.set(
+        result.data.map((d) => ({
+          type: d.type,
+          label: artTypeLabel(d.type),
+          downloadUrl: d.downloadUrl,
+          alreadySaved:
+            existingSet.has(fileNameFor(localName, d.type)) ||
+            (ps1VcdStem !== undefined &&
+              existingSet.has(fileNameFor(ps1VcdStem, d.type))),
+        })),
+      );
+
+      this.selected.set(
+        this.normalizeSelection(new Set(result.data.map((d) => d.type))),
+      );
       this.loading.set(false);
-      return;
-    }
-
-    if (result.data.length === 0) {
-      this.errorMessage.set(result.message || 'No artwork available for this game yet.');
+    } catch (err) {
+      this.errorMessage.set(
+        err instanceof Error
+          ? err.message
+          : 'Failed to load available artwork.',
+      );
       this.loading.set(false);
-      return;
     }
-
-    const dirPath = this._library.currentDirectoryValue;
-    const localName = this.localName;
-    const expectedFiles = result.data.map((d) => `${localName}_${d.type}.png`);
-    const existing = dirPath
-      ? await window.libraryAPI.checkArtFilesExist(`${dirPath}/ART`, expectedFiles)
-      : [];
-
-    this.options.set(
-      result.data.map((d) => ({
-        type: d.type,
-        label: artTypeLabel(d.type),
-        downloadUrl: d.downloadUrl,
-        alreadySaved: existing.includes(`${localName}_${d.type}.png`),
-      })),
-    );
-    this.selected.set(new Set(result.data.map((d) => d.type)));
-    this.loading.set(false);
   }
 
   isSelected(type: string): boolean {
     return this.selected().has(type);
   }
 
-  toggle(type: string): void {
-    const next = new Set(this.selected());
-    if (next.has(type)) next.delete(type);
-    else next.add(type);
-    this.selected.set(next);
+  /**
+   * Families where Open PS2 Loader only reads the initial asset file, so only
+   * one member may be selected (backgrounds). The type codes start with `BG`.
+   */
+  isSingleSelectType(type: string): boolean {
+    return type.toUpperCase().startsWith('BG');
   }
 
-  applyPreset(types: string[] | null): void {
-    const available = this.options().map((o) => o.type);
-    const next = types === null ? available : types.filter((t) => available.includes(t));
-    this.selected.set(new Set(next));
+  /** Whether the two allowed screenshots are already selected. */
+  screenshotsFull(): boolean {
+    let count = 0;
+    for (const t of this.selected()) {
+      if (isScreenshotCode(t)) count += 1;
+    }
+    return count >= MAX_SCREENSHOTS;
+  }
+
+  /** A screenshot card is disabled once OPL's limit is reached and this one
+   *  is not the currently selected card. */
+  isCardDisabled(type: string): boolean {
+    return (
+      isScreenshotCode(type) &&
+      !this.isSelected(type) &&
+      this.screenshotsFull()
+    );
+  }
+
+  /** Type codes whose save file is shared with at least one other option
+   *  (all `SCR_0n` variants collide on `_SCR{.png|2.png}`, and any other type
+   *  whose save base is used by more than one option). Memoised once when the
+   *  options change so the template lookups are O(1). */
+  private readonly sharedSaveTypes = computed<Set<string>>(() => {
+    const baseCount = new Map<string, number>();
+    for (const o of this.options()) {
+      const base = artSaveNameForType(o.type);
+      baseCount.set(base, (baseCount.get(base) ?? 0) + 1);
+    }
+    const shared = new Set<string>();
+    for (const o of this.options()) {
+      if (isScreenshotCode(o.type) || (baseCount.get(artSaveNameForType(o.type)) ?? 0) > 1) {
+        shared.add(o.type);
+      }
+    }
+    return shared;
+  });
+
+  /**
+   * Whether an individual "on disk" badge would be misleading: several
+   * options save to the same file (all `BG_*` collide on `<stem>_BG.png`, all
+   * `SCR_0n` land on `<stem>_SCR.png` or `<stem>_SCR2.png`). The existence is
+   * then reported once at the category level instead.
+   */
+  sharesSaveTarget(type: string): boolean {
+    return this.sharedSaveTypes().has(type);
+  }
+
+  /** Whether every option of a category is single-select (radio group). */
+  isSingleSelectCategory(category: ArtCategory): boolean {
+    return (
+      category.options.length > 0 &&
+      category.options.every((o) => this.isSingleSelectType(o.type))
+    );
+  }
+
+  toggle(type: string): void {
+    const next = new Set(this.selected());
+    if (next.has(type)) {
+      next.delete(type);
+    } else {
+      if (this.isSingleSelectType(type)) {
+        for (const t of next) {
+          if (this.isSingleSelectType(t)) next.delete(t);
+        }
+      }
+      next.add(type);
+    }
+    this.selected.set(this.normalizeSelection(next));
+  }
+
+  /** Select or deselect every artwork type in a category. */
+  toggleCategory(category: ArtCategory): void {
+    const next = new Set(this.selected());
+    const single = category.options.some((o) =>
+      this.isSingleSelectType(o.type),
+    );
+    if (category.allSelected) {
+      for (const option of category.options) next.delete(option.type);
+    } else if (single) {
+      // Backgrounds behave like a radio group: picking the category selects a
+      // single member, never the whole list.
+      for (const option of category.options) next.delete(option.type);
+      if (category.options.length > 0) next.add(category.options[0].type);
+    } else {
+      for (const option of category.options) next.add(option.type);
+    }
+    this.selected.set(this.normalizeSelection(next));
+  }
+
+  /** Collapse or expand a category's thumbnail grid. */
+  toggleExpanded(category: ArtCategory): void {
+    const next = new Set(this.collapsed());
+    if (next.has(category.id)) next.delete(category.id);
+    else next.add(category.id);
+    this.collapsed.set(next);
+  }
+
+  isCollapsed(id: string): boolean {
+    return this.collapsed().has(id);
   }
 
   selectAll(): void {
-    this.selected.set(new Set(this.options().map((o) => o.type)));
+    this.selected.set(
+      this.normalizeSelection(new Set(this.options().map((o) => o.type))),
+    );
+  }
+
+  /**
+   * Normalises a selection so radio families (backgrounds) keep exactly one
+   * member and screenshot families keep at most two (the ones Open PS2 Loader
+   * reads). Iteration order keeps the first members.
+   */
+  private normalizeSelection(types: Set<string>): Set<string> {
+    const next = new Set(types);
+    let singleKept = false;
+    let screenshotsKept = 0;
+    for (const t of [...next]) {
+      if (this.isSingleSelectType(t)) {
+        if (singleKept) next.delete(t);
+        else singleKept = true;
+      } else if (isScreenshotCode(t)) {
+        if (screenshotsKept < MAX_SCREENSHOTS) screenshotsKept += 1;
+        else next.delete(t);
+      }
+    }
+    return next;
   }
 
   deselectAll(): void {
     this.selected.set(new Set());
   }
 
+  /** Selection snapshot taken when "skip existing" is switched on. */
+  private selectionBeforeSkip = new Set<string>();
+
+  isSavedType(type: string): boolean {
+    return this.options().some((o) => o.type === type && o.alreadySaved);
+  }
+
+  /**
+   * "Skip existing artwork" toggle. Turning it on unchecks whatever is already
+   * on disk (it would not be downloaded anyway), remembering the selection so
+   * turning it off restores exactly what was chosen before.
+   */
+  onSkipExistingToggle(): void {
+    const enabling = !this.skipExisting();
+    if (enabling) {
+      this.selectionBeforeSkip = new Set(this.selected());
+      const kept = [...this.selected()].filter((t) => !this.isSavedType(t));
+      this.selected.set(this.normalizeSelection(new Set(kept)));
+    } else {
+      this.selected.set(new Set(this.selectionBeforeSkip));
+    }
+    this.skipExisting.set(enabling);
+  }
+
   download(): void {
     const g = this.game();
-    const types = Array.from(this.selected());
+    let types = Array.from(this.selected());
     if (types.length === 0) return;
+
+    // With "skip existing" on, drop types that already exist under either
+    // naming convention (gameId or VCD title stem) — otherwise the worker
+    // would only skip gameId-named files and re-fetch a title-saved cover.
+    if (this.skipExisting()) {
+      const saved = new Set(
+        this.options()
+          .filter((o) => o.alreadySaved)
+          .map((o) => o.type),
+      );
+      types = types.filter((t) => !saved.has(t));
+    }
+    if (types.length === 0) {
+      this.close();
+      return;
+    }
+
+    // Family assets keep the DB code for the fetch URL but must be saved under
+    // the base file OPL reads. Backgrounds collapse to `<gameID>_BG.png`. The
+    // two picked screenshots become `<gameID>_SCR.png` and `<gameID>_SCR2.png`,
+    // assigned in database-index order regardless of which variants were chosen.
+    const artSaveAsOverrides: Record<string, string> = {};
+    const screenshots = types
+      .filter(isScreenshotCode)
+      .sort((a, b) => screenshotCodeIndex(a) - screenshotCodeIndex(b));
+    screenshots.forEach((t, i) => {
+      artSaveAsOverrides[t] = i === 0 ? 'SCR' : 'SCR2';
+    });
+    for (const t of types) {
+      if (isScreenshotCode(t)) continue;
+      const saveBase = artSaveNameForType(t);
+      if (saveBase !== t.toUpperCase()) artSaveAsOverrides[t] = saveBase;
+    }
 
     this._jobs.enqueue([
       {
@@ -131,7 +438,11 @@ export class ArtworkWizardDialogComponent {
         system: this.system,
         saveAsName: this.isPs1Launcher ? g.ps1LauncherBoot : undefined,
         artTypes: types,
-        skipExisting: this.skipExisting(),
+        artSaveAsOverrides:
+          Object.keys(artSaveAsOverrides).length > 0
+            ? artSaveAsOverrides
+            : undefined,
+        overwrite: !this.skipExisting(),
       },
     ]);
     this.close();

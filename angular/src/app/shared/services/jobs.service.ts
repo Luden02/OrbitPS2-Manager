@@ -566,7 +566,7 @@ export class JobsService {
     window.libraryAPI.onMoveFileProgress((progress) =>
       this.patchJob(job.id, {
         percent: progress.percent,
-        stage: `Copying ${progress.copiedMB}/${progress.totalMB} MB`,
+        stage: `Copying ${progress.copiedMB.toFixed(2)}/${progress.totalMB.toFixed(2)} MB`,
       }),
     );
 

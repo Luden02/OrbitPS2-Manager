@@ -301,6 +301,7 @@ Prefer to do it yourself? Install these prerequisites, then install dependencies
 ```bash
 npm run app:serve       # full dev mode: Angular dev server + Electron with hot-reload
 npm start               # build once and launch
+npm test                # Electron main-process unit tests (`src/services`)
 cd angular && ng test   # run the Angular unit tests
 ```
 

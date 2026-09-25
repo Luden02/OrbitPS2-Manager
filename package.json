@@ -21,7 +21,8 @@
     "package:linux": "npm run remove && npm run build:info && cd angular && npm run build --omit=dev && cd .. && npm run build && node scripts/patch-fpm-rpm.js && PATH=\"$(brew --prefix binutils 2>/dev/null)/bin:$PATH\" electron-builder --linux && node scripts/patch-fpm-rpm.js",
     "package:all": "npm run remove && npm run build:info && cd angular && npm run build --omit=dev && cd .. && npm run build && node scripts/patch-fpm-rpm.js && PATH=\"$(brew --prefix binutils 2>/dev/null)/bin:$PATH\" electron-builder --win --mac --linux && node scripts/patch-fpm-rpm.js && node scripts/collect-distributables.js",
     "remove": "rimraf -rf ./dist && rimraf -rf ./build",
-    "electron": "electron"
+    "electron": "electron",
+    "test": "node -r ts-node/register/transpile-only --test src/services/"
   },
   "devDependencies": {
     "@types/adm-zip": "^0.5.8",

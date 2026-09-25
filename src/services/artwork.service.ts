@@ -2,15 +2,36 @@ import * as fs from "fs/promises";
 import path from "path";
 import https from "https";
 import { createLogger, formatBytes } from "../logger";
+import { artRemoteFileNames } from "./artwork-filenames";
 
 const log = createLogger("artwork");
+
+export type ArtDownloader = (url: string, fileName: string) => Promise<Buffer>;
+
+async function downloadBuffer(url: string, fileName: string): Promise<Buffer> {
+  return new Promise<Buffer>((resolve, reject) => {
+    https
+      .get(url, (res) => {
+        if (res.statusCode !== 200) {
+          return reject(
+            new Error(`Failed to download ${fileName}: ${res.statusCode}`)
+          );
+        }
+        const data: Buffer[] = [];
+        res.on("data", (chunk) => data.push(chunk));
+        res.on("end", () => resolve(Buffer.concat(data)));
+      })
+      .on("error", reject);
+  });
+}
 
 export async function downloadArtByGameId(
   dirPath: string,
   gameId: string,
   system: "PS1" | "PS2" = "PS2",
   saveAsName?: string,
-  artTypes?: string[]
+  artTypes?: string[],
+  downloader: ArtDownloader = downloadBuffer
 ) {
   const baseUrl = `https://raw.githubusercontent.com/Luden02/psx-ps2-opl-art-database/refs/heads/main/${system}`;
   const types = artTypes ?? ["COV", "ICO", "SCR"];
@@ -22,42 +43,49 @@ export async function downloadArtByGameId(
   );
 
   for (const type of types) {
-    const fileName = `${gameId}_${type}.png`;
-    const url = `${baseUrl}/${gameId}/${fileName}`;
-    log.verbose(`GET ${url}`);
+    const candidates = artRemoteFileNames(gameId, type);
+    let lastUrl = "";
+    let lastError: Error | null = null;
+    let saved = false;
 
-    try {
-      const buffer = await new Promise<Buffer>((resolve, reject) => {
-        https
-          .get(url, (res) => {
-            if (res.statusCode !== 200) {
-              return reject(
-                new Error(`Failed to download ${fileName}: ${res.statusCode}`)
-              );
-            }
-            const data: Buffer[] = [];
-            res.on("data", (chunk) => data.push(chunk));
-            res.on("end", () => resolve(Buffer.concat(data)));
-          })
-          .on("error", reject);
-      });
+    for (const fileName of candidates) {
+      const url = `${baseUrl}/${gameId}/${fileName}`;
+      lastUrl = url;
+      log.verbose(`GET ${url}`);
 
-      const savePath = path.join(dirPath, `${localName}_${type}.png`);
-      await fs.writeFile(savePath, buffer);
-      log.verbose(`Saved ${type} artwork (${formatBytes(buffer.length)}) → ${savePath}`);
+      try {
+        const buffer = await downloader(url, fileName);
+        const savePath = path.join(dirPath, `${localName}_${type}.png`);
+        await fs.writeFile(savePath, buffer);
+        log.verbose(`Saved ${type} artwork (${formatBytes(buffer.length)}) → ${savePath}`);
+        results.push({
+          name: localName,
+          type,
+          url,
+          savedPath: savePath,
+        });
+        saved = true;
+        break;
+      } catch (err: any) {
+        lastError = err;
+        const isLastCandidate = fileName === candidates[candidates.length - 1];
+        if (!isLastCandidate) {
+          log.verbose(
+            `${type} candidate ${fileName} failed for ${gameId}, trying next: ${err.message}`
+          );
+        }
+      }
+    }
+
+    if (!saved) {
+      log.verbose(
+        `${type} artwork unavailable for ${gameId}: ${lastError?.message ?? `Failed to download ${type}`}`
+      );
       results.push({
         name: localName,
         type,
-        url,
-        savedPath: savePath,
-      });
-    } catch (err: any) {
-      log.verbose(`${type} artwork unavailable for ${gameId}: ${err.message}`);
-      results.push({
-        name: localName,
-        type,
-        url,
-        error: err.message,
+        url: lastUrl,
+        error: lastError?.message ?? `Failed to download ${type}`,
       });
     }
   }

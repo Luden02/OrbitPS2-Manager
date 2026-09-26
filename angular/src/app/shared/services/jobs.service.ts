@@ -86,12 +86,12 @@ export interface ImportJob {
   /** Artwork only: which art types to fetch (defaults to COV, ICO, SCR). */
   artTypes?: string[];
   /**
-   * Artwork only: resolve the requested types as canonical asset slots against
-   * the database's variant chains (used by the bulk dialog). Each slot falls
-   * back to the first available DB variant and is saved under the canonical
-   * OPL name (`<name>_<slot>.png`), so fallback assets are renamed correctly.
+   * Artwork only: also accept the remaining indexed variants of a family when
+   * the requested slot's own candidates are missing (used by the bulk dialog).
+   * A game whose database only holds e.g. `SCR_05` still gets its `SCR` slot
+   * filled, and the file is saved under the canonical OPL name.
    */
-  resolveSlots?: boolean;
+  wideSlotFallback?: boolean;
   status: JobStatus;
   percent: number;
   stage: string;
@@ -419,22 +419,15 @@ export class JobsService {
     this.patchJob(job.id, { stage: 'Downloading artwork…', percent: 50 });
 
     const typeCodes = toDownload.map((t) => t.type);
-    const result = job.resolveSlots
-      ? await window.libraryAPI.downloadArtResolved(
-          artDir,
-          job.gameId,
-          job.system ?? 'PS2',
-          saveAsName,
-          typeCodes,
-        )
-      : await window.libraryAPI.downloadArtByGameId(
-          artDir,
-          job.gameId,
-          job.system ?? 'PS2',
-          saveAsName,
-          typeCodes,
-          artSaveOverrides,
-        );
+    const result = await window.libraryAPI.downloadArtByGameId(
+      artDir,
+      job.gameId,
+      job.system ?? 'PS2',
+      saveAsName,
+      typeCodes,
+      artSaveOverrides,
+      job.wideSlotFallback,
+    );
 
     if (result?.data) {
       const saved = result.data.filter((r: any) => r.savedPath);
@@ -605,7 +598,7 @@ export class JobsService {
     window.libraryAPI.onMoveFileProgress((progress) =>
       this.patchJob(job.id, {
         percent: progress.percent,
-        stage: `Copying ${progress.copiedMB}/${progress.totalMB} MB`,
+        stage: `Copying ${progress.copiedMB.toFixed(2)}/${progress.totalMB.toFixed(2)} MB`,
       }),
     );
 

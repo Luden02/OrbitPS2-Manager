@@ -1,4 +1,5 @@
 import { dialog } from "electron";
+import { spawn } from "child_process";
 import * as fs from "fs/promises";
 import path from "path";
 import { createLogger, formatBytes } from "../logger";
@@ -355,6 +356,86 @@ export async function openAskGameFiles(
   return result;
 }
 
+function copyFileWithWindowsProgress(
+  sourcePath: string,
+  targetPath: string,
+  totalSize: number,
+  startTime: number,
+  onProgress?: (progress: {
+    percent: number;
+    copiedMB: number;
+    totalMB: number;
+    elapsed: number;
+  }) => void
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const sourceDir = path.dirname(sourcePath);
+    const sourceName = path.basename(sourcePath);
+    const targetDir = path.dirname(targetPath);
+    const child = spawn(
+      "robocopy",
+      [
+        sourceDir,
+        targetDir,
+        sourceName,
+        "/J", // unbuffered I/O, intended for large files
+        "/IS", // copy even when the destination appears unchanged
+        "/R:0",
+        "/W:0",
+        "/NJH",
+        "/NJS",
+        "/NDL",
+      ],
+      { windowsHide: true }
+    );
+
+    let lastPercent = -1;
+    let errorOutput = "";
+    const emitProgress = (percent: number) => {
+      const clamped = Math.round(Math.max(0, Math.min(100, percent)) * 10) / 10;
+      if (clamped <= lastPercent) return;
+      lastPercent = clamped;
+      const elapsed = (Date.now() - startTime) / 1000;
+      onProgress?.({
+        percent: clamped,
+        copiedMB: (totalSize * clamped) / 100 / (1024 * 1024),
+        totalMB: totalSize / (1024 * 1024),
+        elapsed,
+      });
+    };
+
+    const consumeOutput = (chunk: Buffer | string) => {
+      const text = chunk.toString();
+      const matches = /(\d{1,3}(?:\.\d+)?)%/g;
+      let match: RegExpExecArray | null;
+      while ((match = matches.exec(text)) !== null) {
+        emitProgress(Number(match[1]));
+      }
+    };
+
+    child.stdout?.on("data", consumeOutput);
+    child.stderr?.on("data", (chunk: Buffer | string) => {
+      errorOutput = (errorOutput + chunk.toString()).slice(-2000);
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      // Robocopy uses exit codes 0–7 for success or a successful copy with
+      // informational differences; 8 or higher means the copy failed.
+      if (code !== null && code < 8) {
+        emitProgress(100);
+        resolve();
+      } else {
+        reject(
+          new Error(
+            `Windows copy failed (robocopy exit code ${code ?? "unknown"})` +
+              (errorOutput.trim() ? `: ${errorOutput.trim()}` : "")
+          )
+        );
+      }
+    });
+  });
+}
+
 export async function moveFile(
   sourcePath: string,
   destPath: string,
@@ -365,8 +446,6 @@ export async function moveFile(
     elapsed: number;
   }) => void
 ) {
-  const fsSync = await import("fs");
-
   log.info(`Moving file: ${sourcePath} → ${destPath}`);
 
   let targetPath = destPath;
@@ -397,53 +476,39 @@ export async function moveFile(
   } catch (err: any) {
     if (err?.code === "EXDEV") {
       try {
-        log.verbose("Cross-device move (EXDEV) — falling back to streamed copy");
+        log.verbose(
+          "Cross-device move (EXDEV) — using the platform-optimized file copy"
+        );
         const stats = await fs.stat(sourcePath);
         const totalSize = stats.size;
         const startTime = Date.now();
 
-        await new Promise<void>((resolve, reject) => {
-          const readStream = fsSync.createReadStream(sourcePath);
-          const writeStream = fsSync.createWriteStream(targetPath);
-
-          let copiedBytes = 0;
-          let lastLogTime = Date.now();
-          const LOG_INTERVAL_MS = 1000;
-
-          readStream.on("data", (chunk: string | Buffer) => {
-            copiedBytes += Buffer.isBuffer(chunk)
-              ? chunk.length
-              : Buffer.byteLength(chunk);
-            const now = Date.now();
-
-            if (now - lastLogTime >= LOG_INTERVAL_MS) {
-              const progress = ((copiedBytes / totalSize) * 100).toFixed(1);
-              const copiedMB = (copiedBytes / (1024 * 1024)).toFixed(2);
-              const totalMB = (totalSize / (1024 * 1024)).toFixed(2);
-              const elapsed = ((now - startTime) / 1000).toFixed(1);
-              log.verbose(
-                `Copy progress: ${progress}% (${copiedMB}/${totalMB} MB) — ${elapsed}s elapsed`
-              );
-
-              if (onProgress) {
-                onProgress({
-                  percent: parseFloat(progress),
-                  copiedMB: parseFloat(copiedMB),
-                  totalMB: parseFloat(totalMB),
-                  elapsed: parseFloat(elapsed),
-                });
-              }
-
-              lastLogTime = now;
-            }
-          });
-
-          readStream.on("error", reject);
-          writeStream.on("error", reject);
-          writeStream.on("finish", resolve);
-
-          readStream.pipe(writeStream);
+        onProgress?.({
+          percent: 0,
+          copiedMB: 0,
+          totalMB: parseFloat((totalSize / (1024 * 1024)).toFixed(2)),
+          elapsed: 0,
         });
+
+        if (process.platform === "win32") {
+          await copyFileWithWindowsProgress(
+            sourcePath,
+            targetPath,
+            totalSize,
+            startTime,
+            onProgress
+          );
+        } else {
+          // Node's copyFile uses the platform implementation on other
+          // platforms too, but does not expose a byte-progress callback.
+          await fs.copyFile(sourcePath, targetPath);
+          onProgress?.({
+            percent: 100,
+            copiedMB: totalSize / (1024 * 1024),
+            totalMB: totalSize / (1024 * 1024),
+            elapsed: (Date.now() - startTime) / 1000,
+          });
+        }
 
         const duration = ((Date.now() - startTime) / 1000).toFixed(2);
         log.info(`Copied ${formatBytes(totalSize)} in ${duration}s → ${targetPath}`);

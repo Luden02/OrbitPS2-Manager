@@ -1,7 +1,6 @@
 import { ipcMain } from "electron";
 import {
   downloadArtByGameId,
-  downloadArtResolved,
   checkArtFilesExist,
   listAvailableArt,
 } from "../services/artwork.service";
@@ -17,6 +16,7 @@ export function registerArtworkIpc(): void {
       saveAsName?: string,
       artTypes?: string[],
       saveAsByType?: Record<string, string>,
+      wideSlotFallback?: boolean,
     ) => {
       return downloadArtByGameId(
         dirPath,
@@ -24,7 +24,11 @@ export function registerArtworkIpc(): void {
         system || "PS2",
         saveAsName,
         artTypes,
+        // The injectable downloader is for tests; the renderer always takes the
+        // real HTTPS path, so it stays `undefined` here.
+        undefined,
         saveAsByType,
+        wideSlotFallback,
       );
     },
   );
@@ -33,26 +37,6 @@ export function registerArtworkIpc(): void {
     "check-art-files-exist",
     async (_event, artDir: string, filenames: string[]) => {
       return checkArtFilesExist(artDir, filenames);
-    },
-  );
-
-  ipcMain.handle(
-    "download-art-resolved",
-    async (
-      _event,
-      dirPath: string,
-      gameId: string,
-      system?: "PS1" | "PS2",
-      saveAsName?: string,
-      artSlots?: string[],
-    ) => {
-      return downloadArtResolved(
-        dirPath,
-        gameId,
-        system || "PS2",
-        saveAsName,
-        artSlots,
-      );
     },
   );
 

@@ -104,3 +104,8 @@ CLAUDE.md
 
 # Auto-generated build info
 angular/src/app/shared/build-info.ts
+
+# Jekyll (docs site)
+docs/_site/
+docs/.jekyll-cache/
+docs/.jekyll-metadata

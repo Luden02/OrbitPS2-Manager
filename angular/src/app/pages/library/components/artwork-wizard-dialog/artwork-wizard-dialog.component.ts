@@ -40,12 +40,6 @@ function isScreenshotCode(type: string): boolean {
   return SCREENSHOT_RE.test(type);
 }
 
-/** Numeric index of a screenshot variant (`SCR_03` → 3); -1 if not one. */
-function screenshotCodeIndex(type: string): number {
-  const match = SCREENSHOT_RE.exec(type);
-  return match ? parseInt(match[1], 10) : -1;
-}
-
 /** Whether a type belongs to a single-select radio family (backgrounds). */
 function isSingleSelectCode(type: string): boolean {
   return type.toUpperCase().startsWith('BG');
@@ -426,18 +420,15 @@ export class ArtworkWizardDialogComponent {
     }
 
     // Family assets keep the DB code for the fetch URL but must be saved under
-    // the base file OPL reads. Backgrounds collapse to `<gameID>_BG.png`. The
-    // two picked screenshots become `<gameID>_SCR.png` and `<gameID>_SCR2.png`,
-    // assigned in database-index order regardless of which variants were chosen.
+    // the base file OPL reads. One rule for all three consumers — the "on disk"
+    // badge, the skip-existing filter and this map — so a type can never be
+    // reported as `GAMEID_SCR2.png` and then written as `GAMEID_SCR.png`.
+    // Backgrounds collapse to `<gameID>_BG.png`, `SCR_00` to
+    // `<gameID>_SCR.png` and any other `SCR_0n` to `<gameID>_SCR2.png`.
+    // (Two chosen screenshots that both resolve to `SCR2`, e.g. `SCR_02` and
+    // `SCR_05`, share one file — the category's saved count shows it as one.)
     const artSaveAsOverrides: Record<string, string> = {};
-    const screenshots = types
-      .filter(isScreenshotCode)
-      .sort((a, b) => screenshotCodeIndex(a) - screenshotCodeIndex(b));
-    screenshots.forEach((t, i) => {
-      artSaveAsOverrides[t] = i === 0 ? 'SCR' : 'SCR2';
-    });
     for (const t of types) {
-      if (isScreenshotCode(t)) continue;
       const saveBase = artSaveNameForType(t);
       if (saveBase !== t.toUpperCase()) artSaveAsOverrides[t] = saveBase;
     }

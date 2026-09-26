@@ -119,7 +119,14 @@ declare interface Window {
     /** Remove all PS1 delete progress listeners. */
     removeAllDeletePs1ProgressListeners: () => void;
 
-    /** Download cover/background art for a game by its ID. */
+    /**
+     * Download cover/background art for a game by its ID.
+     *
+     * `saveAsByType` overrides only the local file name (the wizard fetches
+     * `SCR_05` but stores it as `SCR`). `wideSlotFallback` also accepts the
+     * remaining indexed variants of a family, so a bulk run fills `SCR`/`SCR2`/
+     * `BG` even when the database holds only e.g. `SCR_05`.
+     */
     downloadArtByGameId: (
       dirPath: string,
       gameId: string,
@@ -127,6 +134,7 @@ declare interface Window {
       saveAsName?: string,
       artTypes?: string[],
       saveAsByType?: Record<string, string>,
+      wideSlotFallback?: boolean,
     ) => Promise<any>;
 
     /** Check which of the given filenames exist in the art directory. */
@@ -134,19 +142,6 @@ declare interface Window {
       artDir: string,
       filenames: string[],
     ) => Promise<string[]>;
-
-    /**
-     * Download artwork for a game by resolving canonical asset slots against
-     * the database's variant chains (first available fallback variant is used
-     * and renamed to the canonical name).
-     */
-    downloadArtResolved: (
-      dirPath: string,
-      gameId: string,
-      system?: 'PS1' | 'PS2',
-      saveAsName?: string,
-      artSlots?: string[],
-    ) => Promise<any>;
 
     /** List the artwork actually available for a game in the art database. */
     listAvailableArt: (

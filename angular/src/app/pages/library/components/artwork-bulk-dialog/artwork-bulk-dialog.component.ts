@@ -239,7 +239,7 @@ export class ArtworkBulkDialogComponent implements OnInit {
         saveAsName: t.saveAsName,
         overwrite: this.overwrite(),
         artTypes: [...this.artTypes()],
-        resolveSlots: true,
+        wideSlotFallback: true,
       })),
     );
 

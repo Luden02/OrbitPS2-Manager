@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="orbitSphere" x1="14" y1="13" x2="51" y2="52" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0073bb"/>
+      <stop offset="100%" stop-color="#00b4f0"/>
+    </linearGradient>
+  </defs>
+  <ellipse cx="32" cy="32" rx="29" ry="10.5" transform="rotate(-18 32 32)" stroke="#009ee0" stroke-width="3.4" stroke-linecap="round" opacity="0.85"/>
+  <circle cx="32" cy="32" r="16.5" fill="url(#orbitSphere)"/>
+  <circle cx="38.6" cy="35" r="4.6" fill="#a0e3f0"/>
+</svg>

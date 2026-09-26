@@ -329,6 +329,10 @@ app-root {
   }
 }
 
+/* `backwards`, not `both`: `both` keeps the final keyframe's `transform`, which
+   turns the wrapper into the containing block for `position: fixed` children
+   (the single-game artwork wizard is rendered inside the library page's
+   `.fade-in`). The bulk dialog host sits outside this wrapper. */
 .fade-in {
-  animation: orbit-fade-in 0.25s ease both;
+  animation: orbit-fade-in 0.25s ease backwards;
 }

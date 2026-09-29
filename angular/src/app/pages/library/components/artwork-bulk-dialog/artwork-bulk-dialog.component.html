@@ -1,325 +1,503 @@
-<div class="ab-backdrop" (click)="close()"></div>
-<div class="ab-modal glass-strong" role="dialog" aria-modal="true" aria-label="Download artwork">
+<div class="ab-backdrop" (click)="dismiss()"></div>
+<div
+  class="ab-modal glass-strong"
+  role="dialog"
+  aria-modal="true"
+  aria-label="Download artwork"
+>
   <!-- Header -->
-  <div class="flex items-center gap-2 border-b border-base-content/10 px-5 py-3">
+  <div
+    class="flex items-center gap-2 border-b border-base-content/10 px-5 py-3"
+  >
     <i-lucide name="image-down" size="18" class="text-accent"></i-lucide>
     <h2 class="font-display text-sm font-semibold tracking-wide">
-      @if (dialogState === 'running') { Downloading artwork… }
-      @else if (dialogState === 'done') { Download finished }
-      @else { Download artwork }
+      @if (dialogState === "running") {
+        Downloading artwork…
+      } @else if (dialogState === "done") {
+        Download finished
+      } @else {
+        Download artwork
+      }
     </h2>
-    <button class="btn btn-ghost btn-xs btn-square ml-auto" (click)="close()" [disabled]="running" title="Close">
+    <button
+      class="btn btn-ghost btn-xs btn-square ml-auto"
+      (click)="dismiss()"
+      [disabled]="running"
+      title="Close"
+    >
       <i-lucide name="x" size="16"></i-lucide>
     </button>
   </div>
 
   <div class="ab-body flex flex-col gap-4 px-5 py-4">
-    @if (dialogState === 'input') {
-
-    <!-- Scope -->
-    <div>
-      <span class="text-xs font-semibold uppercase tracking-wide text-base-content/55">
-        Target library section
-      </span>
-      <div class="mt-2 flex flex-wrap items-center gap-1">
-        <button type="button" class="seg-tab" [class.active]="scope() === 'PS2'" (click)="setScope('PS2')">
-          PlayStation 2
-        </button>
-        <button type="button" class="seg-tab" [class.active]="scope() === 'PS1'" (click)="setScope('PS1')">
-          PlayStation 1
-        </button>
-        <button type="button" class="seg-tab" [class.active]="scope() === 'APPS'" (click)="setScope('APPS')">
-          PS1 Apps
-        </button>
-        <button type="button" class="seg-tab" [class.active]="scope() === 'ALL'" (click)="setScope('ALL')">
-          All
-        </button>
-      </div>
-      @if (scope() === 'APPS' || scope() === 'ALL') {
-      <p class="mt-1.5 text-xs text-base-content/50">
-        @if (scope() === 'APPS') {
-        PS1 POPStarter launchers (regular ELF apps have no artwork database).
-        } @else {
-        Every game with a resolvable game ID — PS2 discs, PS1 discs and PS1
-        POPStarter launchers.
-        }
-      </p>
-      }
-    </div>
-
-    <!-- Plan summary -->
-    @if (!libraryLoaded()) {
-    <div
-      class="flex flex-1 items-center justify-center rounded-md border border-dashed border-base-content/15 bg-base-100/20 p-4"
-    >
-      <span class="flex items-center gap-2 text-sm text-base-content/60">
-        <i-lucide name="loader-circle" size="15" class="animate-spin text-warning"></i-lucide>
-        Loading library…
-      </span>
-    </div>
-    } @else if (eligibleCount() === 0) {
-    <div
-      class="flex items-center justify-center rounded-md border border-dashed border-base-content/15 bg-base-100/20 p-4"
-    >
-      <span class="flex items-center gap-2 text-sm text-base-content/60">
-        <i-lucide name="info" size="15" class="text-warning"></i-lucide>
-        No games in this section have a resolvable game ID.
-      </span>
-    </div>
-    } @else if (artTypes().length === 0) {
-    <div class="flex items-center gap-2 text-xs text-base-content/55">
-      <i-lucide name="mouse-pointer-click" size="13" class="shrink-0 text-accent"></i-lucide>
-      <span>
-        Missing artwork below shows everything absent from disk. Choose asset
-        types to set what gets downloaded.
-      </span>
-    </div>
-    } @else {
-    <div class="flex items-center gap-2 text-xs text-base-content/60">
-      <i-lucide
-        [name]="overwrite() ? 'triangle-alert' : 'download'"
-        size="13"
-        class="shrink-0"
-        [class.text-warning]="overwrite()"
-        [class.text-accent]="!overwrite()"
-      ></i-lucide>
-      <span>
-        @if (overwrite()) {
-        Will overwrite the selected artwork for
-        <strong>{{ eligibleCount() }}</strong>
-        game{{ eligibleCount() === 1 ? '' : 's' }}
-        <span class="text-warning/80">— replaced files cannot be recovered.</span>
-        } @else {
-        Will download missing artwork for
-        <strong>{{ toProcessCount() }}</strong>
-        game{{ toProcessCount() === 1 ? '' : 's' }}.
-        @if (completeCount() > 0) {
-        <span class="text-base-content/50">
-          {{ completeCount() }} game{{ completeCount() === 1 ? '' : 's' }} already
-          have all selected artwork and will be skipped.
+    @if (dialogState === "input") {
+      <!-- Scope -->
+      <div>
+        <span
+          class="text-xs font-semibold uppercase tracking-wide text-base-content/55"
+        >
+          Target library section
         </span>
+        <div class="mt-2 flex flex-wrap items-center gap-1">
+          <button
+            type="button"
+            class="seg-tab"
+            [class.active]="scope() === 'PS2'"
+            (click)="setScope('PS2')"
+          >
+            PlayStation 2
+          </button>
+          <button
+            type="button"
+            class="seg-tab"
+            [class.active]="scope() === 'PS1'"
+            (click)="setScope('PS1')"
+          >
+            PlayStation 1
+          </button>
+          <button
+            type="button"
+            class="seg-tab"
+            [class.active]="scope() === 'APPS'"
+            (click)="setScope('APPS')"
+          >
+            PS1 Apps
+          </button>
+          <button
+            type="button"
+            class="seg-tab"
+            [class.active]="scope() === 'ALL'"
+            (click)="setScope('ALL')"
+          >
+            All
+          </button>
+        </div>
+        @if (scope() === "APPS" || scope() === "ALL") {
+          <p class="mt-1.5 text-xs text-base-content/50">
+            @if (scope() === "APPS") {
+              PS1 POPStarter launchers (regular ELF apps have no artwork
+              database).
+            } @else {
+              Every game with a resolvable game ID — PS2 discs, PS1 discs and
+              PS1 POPStarter launchers.
+            }
+          </p>
         }
-        }
-      </span>
-    </div>
-    }
-
-    <!-- Existing-artwork policy (always visible, outside the scroll area) -->
-    @if (libraryLoaded() && eligibleCount() > 0) {
-    <div>
-      <span class="text-xs font-semibold uppercase tracking-wide text-base-content/55">
-        Existing artwork
-      </span>
-<div class="mt-2 grid grid-cols-1 gap-1.5">
-        <button
-          type="button"
-          class="ab-policy flex cursor-pointer items-start gap-2 rounded-md p-2 text-left transition-colors"
-          [class.ab-selected]="!overwrite()"
-          (click)="overwrite.set(false)"
-          [attr.aria-pressed]="!overwrite()"
-        >
-          <span class="ab-dot" [class.is-on]="!overwrite()"></span>
-          <span class="leading-tight">
-            <span class="block text-sm">Only download missing artwork</span>
-            <span class="block text-[0.68rem] text-base-content/55">
-              Existing covers, icons and screenshots are left untouched.
-            </span>
-          </span>
-        </button>
-        <button
-          type="button"
-          class="ab-policy ab-policy-warn flex cursor-pointer items-start gap-2 rounded-md p-2 text-left transition-colors"
-          [class.ab-selected]="overwrite()"
-          (click)="overwrite.set(true)"
-          [attr.aria-pressed]="overwrite()"
-        >
-          <span class="ab-dot" [class.is-on]="overwrite()"></span>
-          <span class="leading-tight">
-            <span class="block text-sm" [class.text-warning]="overwrite()">
-              Overwrite all existing artwork
-            </span>
-            <span class="block text-[0.68rem]" [class.text-warning/70]="overwrite()"
-              [class.text-base-content/55]="!overwrite()">
-              Replaces every selected asset, even if it already exists.
-            </span>
-          </span>
-          @if (overwrite()) {
-          <i-lucide name="triangle-alert" size="16" class="ml-auto mt-0.5 shrink-0 text-warning"></i-lucide>
-          }
-        </button>
       </div>
-    </div>
 
-    <!-- Asset types & missing artwork (scrollable) -->
-    <div class="ab-scroll flex flex-col gap-4 pr-1">
-    <!-- Asset types -->
-    <div>
-      <div class="flex items-center justify-between gap-2">
-        <div class="flex items-center gap-2">
-          <span class="text-xs font-semibold uppercase tracking-wide text-base-content/55">
-            Asset types
-          </span>
-          <span class="rounded-full bg-base-content/10 px-2 py-0.5 font-mono text-[0.62rem] text-base-content/60">
-            {{ artTypes().length }} / {{ availableArtTypes.length }} selected
+      <!-- Plan summary -->
+      @if (!libraryLoaded()) {
+        <div
+          class="flex flex-1 items-center justify-center rounded-md border border-dashed border-base-content/15 bg-base-100/20 p-4"
+        >
+          <span class="flex items-center gap-2 text-sm text-base-content/60">
+            <i-lucide
+              name="loader-circle"
+              size="15"
+              class="animate-spin text-warning"
+            ></i-lucide>
+            Loading library…
           </span>
         </div>
-<label
-          class="flex cursor-pointer select-none items-center gap-1.5 rounded-md px-1 py-0.5 text-[0.68rem] font-medium text-base-content/55 transition-colors hover:bg-base-100/40 hover:text-base-content"
-          title="Check every asset type — click again to uncheck all"
+      } @else if (eligibleCount() === 0) {
+        <div
+          class="flex items-center justify-center rounded-md border border-dashed border-base-content/15 bg-base-100/20 p-4"
         >
-          <input
-            type="checkbox"
-            class="checkbox checkbox-primary checkbox-xs"
-            [checked]="allArtTypesSelected()"
-            [indeterminate]="artTypes().length > 0 && !allArtTypesSelected()"
-            (change)="onAllArtTypesChange($any($event.target).checked)"
-          />
-          All
-        </label>
-      </div>
-      <div class="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
-        @for (type of availableArtTypes; track type) {
-        <label
-          class="ab-asset-type flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 transition-colors"
-          [class.ab-selected]="artTypes().includes(type)"
-        >
-          <input
-            type="checkbox"
-            class="checkbox checkbox-primary checkbox-sm shrink-0"
-            [checked]="artTypes().includes(type)"
-            (change)="onArtTypeChange(type, $any($event.target).checked)"
-          />
-          <span class="min-w-0">
-            <span class="block text-sm">{{ artTypeLabel(type) }}</span>
-            <span class="block font-mono text-[0.65rem] text-base-content/40">_{{ type }}.png</span>
+          <span class="flex items-center gap-2 text-sm text-base-content/60">
+            <i-lucide name="info" size="15" class="text-warning"></i-lucide>
+            No games in this section have a resolvable game ID.
           </span>
-        </label>
-        }
-      </div>
-      <p class="mt-1.5 flex items-center gap-2 text-xs text-base-content/45">
-        <i-lucide name="info" size="13"></i-lucide>
-        Missing variants are downloaded under the closest available match and
-        renamed for OPL.
-      </p>
-    </div>
-
-    <!-- Missing artwork (driven by the selected asset types; defaults to cover/icon/screenshot) -->
-    <div class="border-t border-base-content/10 pt-3">
-      <div class="flex items-center gap-2 px-1 py-1">
-        <span class="text-xs font-semibold uppercase tracking-wide text-base-content/70">
-          Missing artwork
-        </span>
-        @if (missingArtItems().length > 0) {
-        <span class="rounded-full bg-warning/15 px-2 py-0.5 font-mono text-[0.62rem] font-normal text-warning">
-          {{ missingArtItems().length }} game{{ missingArtItems().length === 1 ? '' : 's' }}
-        </span>
-        } @else {
-        <span class="rounded-full bg-success/15 px-2 py-0.5 font-mono text-[0.62rem] font-normal text-success">
-          none
-        </span>
-        }
-      </div>
-      @if (missingArtItems().length === 0) {
-      <div class="mt-2 flex items-center gap-2 rounded-md border border-success/25 bg-success/5 px-3 py-2 text-xs text-success/80">
-        <i-lucide name="circle-check" size="14" class="shrink-0"></i-lucide>
-        Every game in this section already has all available artwork on disk.
-      </div>
+        </div>
+      } @else if (artTypes().length === 0) {
+        <div class="flex items-center gap-2 text-xs text-base-content/55">
+          <i-lucide
+            name="mouse-pointer-click"
+            size="13"
+            class="shrink-0 text-accent"
+          ></i-lucide>
+          <span>
+            Missing artwork below shows everything absent from disk. Choose
+            asset types to set what gets downloaded.
+          </span>
+        </div>
       } @else {
-      <div class="ab-missing-list mt-2 rounded-md border border-base-content/10 bg-base-100/30">
-        @for (item of missingArtItems(); track item.label) {
-        <div class="flex items-center gap-2 border-b border-base-content/5 px-3 py-1.5 last:border-b-0">
-          <i-lucide name="image-off" size="13" class="shrink-0 text-base-content/40"></i-lucide>
-          <span class="min-w-0 flex-1 truncate text-xs" [title]="item.label">{{ item.label }}</span>
-          <span class="shrink-0 font-mono text-[0.62rem] text-warning/80">{{ item.missingTypes.join(', ') }}</span>
+        <div class="flex items-center gap-2 text-xs text-base-content/60">
+          <i-lucide
+            [name]="overwrite() ? 'triangle-alert' : 'download'"
+            size="13"
+            class="shrink-0"
+            [class.text-warning]="overwrite()"
+            [class.text-accent]="!overwrite()"
+          ></i-lucide>
+          <span>
+            @if (overwrite()) {
+              Will overwrite the selected artwork for
+              <strong>{{ eligibleCount() }}</strong>
+              game{{ eligibleCount() === 1 ? "" : "s" }}
+              <span class="text-warning/80"
+                >— replaced files cannot be recovered.</span
+              >
+            } @else {
+              Will download missing artwork for
+              <strong>{{ toProcessCount() }}</strong>
+              game{{ toProcessCount() === 1 ? "" : "s" }}.
+              @if (completeCount() > 0) {
+                <span class="text-base-content/50">
+                  {{ completeCount() }} game{{
+                    completeCount() === 1 ? "" : "s"
+                  }}
+                  already have all selected artwork and will be skipped.
+                </span>
+              }
+            }
+          </span>
         </div>
-        }
-      </div>
       }
-    </div>
-    </div>
-    }
+
+      <!-- Existing-artwork policy (always visible, outside the scroll area) -->
+      @if (libraryLoaded() && eligibleCount() > 0) {
+        <div>
+          <span
+            class="text-xs font-semibold uppercase tracking-wide text-base-content/55"
+          >
+            Existing artwork
+          </span>
+          <div class="mt-2 grid grid-cols-1 gap-1.5">
+            <button
+              type="button"
+              class="ab-policy flex cursor-pointer items-start gap-2 rounded-md p-2 text-left transition-colors"
+              [class.ab-selected]="!overwrite()"
+              (click)="overwrite.set(false)"
+              [attr.aria-pressed]="!overwrite()"
+            >
+              <span class="ab-dot" [class.is-on]="!overwrite()"></span>
+              <span class="leading-tight">
+                <span class="block text-sm">Only download missing artwork</span>
+                <span class="block text-[0.68rem] text-base-content/55">
+                  Existing covers, icons and screenshots are left untouched.
+                </span>
+              </span>
+            </button>
+            <button
+              type="button"
+              class="ab-policy ab-policy-warn flex cursor-pointer items-start gap-2 rounded-md p-2 text-left transition-colors"
+              [class.ab-selected]="overwrite()"
+              (click)="overwrite.set(true)"
+              [attr.aria-pressed]="overwrite()"
+            >
+              <span class="ab-dot" [class.is-on]="overwrite()"></span>
+              <span class="leading-tight">
+                <span class="block text-sm" [class.text-warning]="overwrite()">
+                  Overwrite all existing artwork
+                </span>
+                <span
+                  class="block text-[0.68rem]"
+                  [class.text-warning/70]="overwrite()"
+                  [class.text-base-content/55]="!overwrite()"
+                >
+                  Replaces every selected asset, even if it already exists.
+                </span>
+              </span>
+              @if (overwrite()) {
+                <i-lucide
+                  name="triangle-alert"
+                  size="16"
+                  class="ml-auto mt-0.5 shrink-0 text-warning"
+                ></i-lucide>
+              }
+            </button>
+          </div>
+        </div>
+
+        <!-- Asset types & missing artwork (scrollable) -->
+        <div class="ab-scroll flex flex-col gap-4 pr-1">
+          <!-- Asset types -->
+          <div>
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-2">
+                <span
+                  class="text-xs font-semibold uppercase tracking-wide text-base-content/55"
+                >
+                  Asset types
+                </span>
+                <span
+                  class="rounded-full bg-base-content/10 px-2 py-0.5 font-mono text-[0.62rem] text-base-content/60"
+                >
+                  {{ artTypes().length }} /
+                  {{ availableArtTypes.length }} selected
+                </span>
+              </div>
+              <label
+                class="flex cursor-pointer select-none items-center gap-1.5 rounded-md px-1 py-0.5 text-[0.68rem] font-medium text-base-content/55 transition-colors hover:bg-base-100/40 hover:text-base-content"
+                title="Check every asset type — click again to uncheck all"
+              >
+                <input
+                  type="checkbox"
+                  class="checkbox checkbox-primary checkbox-xs"
+                  [checked]="allArtTypesSelected()"
+                  [indeterminate]="
+                    artTypes().length > 0 && !allArtTypesSelected()
+                  "
+                  (change)="onAllArtTypesChange($any($event.target).checked)"
+                />
+                All
+              </label>
+            </div>
+            <div class="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+              @for (type of availableArtTypes; track type) {
+                <label
+                  class="ab-asset-type flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 transition-colors"
+                  [class.ab-selected]="artTypes().includes(type)"
+                >
+                  <input
+                    type="checkbox"
+                    class="checkbox checkbox-primary checkbox-sm shrink-0"
+                    [checked]="artTypes().includes(type)"
+                    (change)="
+                      onArtTypeChange(type, $any($event.target).checked)
+                    "
+                  />
+                  <span class="min-w-0">
+                    <span class="block text-sm">{{ artTypeLabel(type) }}</span>
+                    <span
+                      class="block font-mono text-[0.65rem] text-base-content/40"
+                      >_{{ type }}.png</span
+                    >
+                  </span>
+                </label>
+              }
+            </div>
+            <p
+              class="mt-1.5 flex items-center gap-2 text-xs text-base-content/45"
+            >
+              <i-lucide name="info" size="13"></i-lucide>
+              Missing variants are downloaded under the closest available match
+              and renamed for OPL.
+            </p>
+          </div>
+
+          <!-- Missing artwork (driven by the selected asset types; defaults to cover/icon/screenshot) -->
+          <div class="border-t border-base-content/10 pt-3">
+            <div class="flex items-center gap-2 px-1 py-1">
+              <span
+                class="text-xs font-semibold uppercase tracking-wide text-base-content/70"
+              >
+                Missing artwork
+              </span>
+              @if (missingArtItems().length > 0) {
+                <span
+                  class="rounded-full bg-warning/15 px-2 py-0.5 font-mono text-[0.62rem] font-normal text-warning"
+                >
+                  {{ missingArtItems().length }} game{{
+                    missingArtItems().length === 1 ? "" : "s"
+                  }}
+                </span>
+              } @else {
+                <span
+                  class="rounded-full bg-success/15 px-2 py-0.5 font-mono text-[0.62rem] font-normal text-success"
+                >
+                  none
+                </span>
+              }
+            </div>
+            @if (missingArtItems().length === 0) {
+              <div
+                class="mt-2 flex items-center gap-2 rounded-md border border-success/25 bg-success/5 px-3 py-2 text-xs text-success/80"
+              >
+                <i-lucide
+                  name="circle-check"
+                  size="14"
+                  class="shrink-0"
+                ></i-lucide>
+                Every game in this section already has all available artwork on
+                disk.
+              </div>
+            } @else {
+              <div
+                class="ab-missing-list mt-2 rounded-md border border-base-content/10 bg-base-100/30"
+              >
+                @for (item of missingArtItems(); track item.key) {
+                  <div
+                    class="flex items-center gap-2 border-b border-base-content/5 px-3 py-1.5 last:border-b-0"
+                  >
+                    <i-lucide
+                      name="image-off"
+                      size="13"
+                      class="shrink-0 text-base-content/40"
+                    ></i-lucide>
+                    <span
+                      class="min-w-0 flex-1 truncate text-xs"
+                      [title]="item.label"
+                      >{{ item.label }}</span
+                    >
+                    <span
+                      class="shrink-0 font-mono text-[0.62rem] text-warning/80"
+                      >{{ item.missingTypes.join(", ") }}</span
+                    >
+                  </div>
+                }
+              </div>
+            }
+          </div>
+        </div>
+      }
     }
 
     <!-- ════════════════════════════════════════════════════════════════
          RUNNING / DONE — live progress log
          ════════════════════════════════════════════════════════════════ -->
     @else {
-    <div class="flex items-center justify-between">
-      <span class="text-xs font-semibold uppercase tracking-wide text-base-content/55">
-        Progress log
-      </span>
-      <span class="text-xs text-base-content/50">
-        {{ succeeded }} ok · {{ failed }} failed{{ cancelled > 0 ? ' · ' + cancelled + ' cancelled' : '' }}
-        · {{ totalJobs }} total
-      </span>
-    </div>
-
-    <div #logArea class="ab-log rounded-md border border-base-content/10 bg-base-100/30">
-      @if (logEntries.length === 0) {
-      <div class="log-line">
-        <span class="log-text text-base-content/50">Waiting for the queue…</span>
-      </div>
-      }
-      @for (entry of logEntries; track $index) {
-      <div class="log-line" [class.text-info]="entry.type === 'step'" [class.text-success]="entry.type === 'success'"
-        [class.text-error]="entry.type === 'error'" [class.font-semibold]="entry.type === 'step'">
-        <span class="log-time">{{ entry.time }}</span>
-        <span class="log-text">{{ entry.text }}</span>
-      </div>
-      }
-    </div>
-
-    @if (done) {
-    <div class="rounded-md border p-3 text-sm" [class.border-error/30]="failed > 0" [class.bg-error/5]="failed > 0"
-      [class.border-success/30]="failed === 0" [class.bg-success/5]="failed === 0">
-      <div class="flex items-center gap-2">
-        <i-lucide [name]="failed > 0 ? 'triangle-alert' : 'circle-check'" size="18"
-          [class.text-success]="failed === 0" [class.text-warning]="failed > 0"></i-lucide>
-        <span class="font-semibold">
-          {{ failed > 0 ? 'Finished with errors' : 'Done' }}
+      <div class="flex items-center justify-between">
+        <span
+          class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-base-content/55"
+        >
+          @if (running && !cancelling) {
+            <span
+              class="loading loading-spinner loading-xs shrink-0"
+              aria-hidden="true"
+            ></span>
+          }
+          Progress log
+        </span>
+        <span class="flex items-center gap-2 text-xs text-base-content/50">
+          @if (running && elapsedLabel()) {
+            <span
+              class="font-mono tabular-nums text-base-content/60"
+              [title]="
+                cancelling
+                  ? 'Time since the run started — waiting on the current file'
+                  : 'Time since the run started'
+              "
+              >{{ elapsedLabel() }}</span
+            >
+          }
+          {{ succeeded }} ok · {{ failed }} failed{{
+            partial > 0 ? " · " + partial + " partial" : ""
+          }}{{ cancelled > 0 ? " · " + cancelled + " cancelled" : "" }} ·
+          {{ totalJobs }} total
         </span>
       </div>
-      <p class="mt-1 text-xs text-base-content/70">
-        {{ succeeded }} ok, {{ failed }} failed{{ cancelled > 0 ? ', ' + cancelled + ' cancelled' : '' }} across
-        {{ totalJobs }} game{{ totalJobs === 1 ? '' : 's' }}.
-      </p>
-    </div>
-    }
+
+      <div
+        #logArea
+        class="ab-log rounded-md border border-base-content/10 bg-base-100/30"
+      >
+        @if (logEntries.length === 0) {
+          <div class="log-line">
+            <span class="log-text text-base-content/50"
+              >Waiting for the queue…</span
+            >
+          </div>
+        }
+        @for (entry of logEntries; track $index) {
+          <div
+            class="log-line"
+            [class.text-info]="entry.type === 'step'"
+            [class.text-success]="entry.type === 'success'"
+            [class.text-error]="entry.type === 'error'"
+            [class.font-semibold]="entry.type === 'step'"
+          >
+            <span class="log-time">{{ entry.time }}</span>
+            <span class="log-text">{{ entry.text }}</span>
+          </div>
+        }
+      </div>
+
+      @if (done) {
+        <div
+          class="rounded-md border p-3 text-sm"
+          [class.border-warning/30]="hasIssues && failed === 0"
+          [class.bg-warning/5]="hasIssues && failed === 0"
+          [class.border-error/30]="failed > 0"
+          [class.bg-error/5]="failed > 0"
+          [class.border-success/30]="!hasIssues"
+          [class.bg-success/5]="!hasIssues"
+        >
+          <div class="flex items-center gap-2">
+            <i-lucide
+              [name]="hasIssues ? 'triangle-alert' : 'circle-check'"
+              size="18"
+              [class.text-success]="!hasIssues"
+              [class.text-warning]="hasIssues"
+            ></i-lucide>
+            <span class="font-semibold">
+              @if (failed > 0) {
+                Finished with errors
+              } @else if (partial > 0) {
+                Finished with missing artwork
+              } @else {
+                Done
+              }
+            </span>
+          </div>
+          <p class="mt-1 text-xs text-base-content/70">
+            {{ succeeded }} ok, {{ failed }} failed{{
+              partial > 0 ? ", " + partial + " partial" : ""
+            }}{{ cancelled > 0 ? ", " + cancelled + " cancelled" : "" }} across
+            {{ totalJobs }} game{{ totalJobs === 1 ? "" : "s" }}.
+          </p>
+          @if (partial > 0) {
+            <p class="mt-1 text-xs text-base-content/70">
+              Partial games had some asset types written and others missing from
+              the database — see the log above.
+            </p>
+          }
+        </div>
+      }
     }
   </div>
 
   <!-- Footer -->
   <div class="flex justify-end gap-2 border-t border-base-content/10 px-5 py-3">
-    @if (dialogState === 'input') {
-    <button type="button" class="btn btn-ghost btn-sm" (click)="close()">Cancel</button>
-    <button
-      type="button"
-      class="btn btn-sm"
-      [class.btn-warning]="overwrite()"
-      [class.btn-primary]="!overwrite()"
-      [disabled]="eligibleCount() === 0 || artTypes().length === 0 || (!overwrite() && toProcessCount() === 0)"
-      (click)="start()"
-    >
-      @if (overwrite()) {
-      <i-lucide name="triangle-alert" size="15"></i-lucide>
-      } @else {
-      <i-lucide name="image-down" size="15"></i-lucide>
-      }
-      @if (overwrite()) {
-      Overwrite {{ eligibleCount() }} game{{ eligibleCount() === 1 ? '' : 's' }}
-      } @else {
-      Download missing ({{ toProcessCount() }})
-      }
-    </button>
+    @if (dialogState === "input") {
+      <button type="button" class="btn btn-ghost btn-sm" (click)="close()">
+        Cancel
+      </button>
+      <button
+        type="button"
+        class="btn btn-sm"
+        [class.btn-warning]="overwrite()"
+        [class.btn-primary]="!overwrite()"
+        [disabled]="
+          eligibleCount() === 0 ||
+          artTypes().length === 0 ||
+          (!overwrite() && toProcessCount() === 0)
+        "
+        (click)="start()"
+      >
+        @if (overwrite()) {
+          <i-lucide name="triangle-alert" size="15"></i-lucide>
+        } @else {
+          <i-lucide name="image-down" size="15"></i-lucide>
+        }
+        @if (overwrite()) {
+          Overwrite {{ eligibleCount() }} game{{
+            eligibleCount() === 1 ? "" : "s"
+          }}
+        } @else {
+          Download missing ({{ toProcessCount() }})
+        }
+      </button>
     } @else {
-    <button type="button" class="btn btn-primary btn-sm" (click)="close()" [disabled]="running">
-      @if (running) {
-      <span class="loading loading-spinner loading-xs"></span>
-      Downloading…
+      @if (cancelling) {
+        <button type="button" class="btn btn-ghost btn-sm" disabled>
+          <span class="loading loading-spinner loading-xs"></span>
+          Finishing current file…
+        </button>
+      } @else if (running) {
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm"
+          (click)="close()"
+          title="Stop the queue — the file being written now is still finished, then this closes"
+        >
+          Cancel
+        </button>
       } @else {
-      Close
+        <button type="button" class="btn btn-primary btn-sm" (click)="close()">
+          Close
+        </button>
       }
-    </button>
     }
   </div>
 </div>

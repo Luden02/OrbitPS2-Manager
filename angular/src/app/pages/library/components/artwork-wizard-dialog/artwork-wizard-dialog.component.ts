@@ -6,8 +6,11 @@ import { LibraryService } from '@shared/services/library.service';
 import {
   ART_CATEGORIES,
   artCategoryForType,
-  artSaveNameForType,
+  artSaveNameCandidates,
+  artSaveNamesForSelection,
   artTypeLabel,
+  isScreenshotArtCode,
+  MAX_SCREENSHOTS,
   UNCATEGORIZED_LABEL,
 } from '@shared/constants/artwork-presets';
 
@@ -15,7 +18,6 @@ interface ArtworkOption {
   type: string;
   label: string;
   downloadUrl: string;
-  alreadySaved: boolean;
 }
 
 interface ArtCategory {
@@ -30,16 +32,6 @@ interface ArtCategory {
   savedCount: number;
 }
 
-const SCREENSHOT_RE = /^SCR_(\d{1,2})$/i;
-
-/** How many screenshots Open PS2 Loader shows at most. */
-const MAX_SCREENSHOTS = 2;
-
-/** Whether a type is a database screenshot variant (`SCR_00`, `SCR_01`, …). */
-function isScreenshotCode(type: string): boolean {
-  return SCREENSHOT_RE.test(type);
-}
-
 /** Whether a type belongs to a single-select radio family (backgrounds). */
 function isSingleSelectCode(type: string): boolean {
   return type.toUpperCase().startsWith('BG');
@@ -51,7 +43,7 @@ function isSingleSelectCode(type: string): boolean {
 function categoryMaxSelectable(options: ArtworkOption[]): number {
   if (options.length === 0) return 0;
   if (options.every((o) => isSingleSelectCode(o.type))) return 1;
-  if (options.every((o) => isScreenshotCode(o.type))) {
+  if (options.every((o) => isScreenshotArtCode(o.type))) {
     return Math.min(options.length, MAX_SCREENSHOTS);
   }
   return options.length;
@@ -71,22 +63,63 @@ export class ArtworkWizardDialogComponent {
   readonly errorMessage = signal<string | null>(null);
   readonly options = signal<ArtworkOption[]>([]);
   readonly selected = signal<Set<string>>(new Set());
-  readonly skipExisting = signal(false);
+
+  /**
+   * Defaults to on. The wizard pre-selects every asset the database offers, so
+   * starting at `false` made the very first click a silent overwrite of whatever
+   * the user had already curated in their ART folder. It also matches the bulk
+   * dialog, which likewise starts on "download only missing files".
+   */
+  readonly skipExisting = signal(true);
 
   /** Category ids the user has collapsed; everything else stays expanded. */
   readonly collapsed = signal<Set<string>>(new Set());
 
   readonly selectedCount = computed(() => this.selected().size);
 
+  /** Save bases already present in the ART folder, e.g. `SCR`, `SCR2`, `COV`. */
+  private readonly existingSaveFiles = signal<ReadonlySet<string>>(new Set());
+
+  /**
+   * File base every option is written under. The selected types are listed
+   * first so the two screenshot slots are handed out by selection order: the
+   * first pick is `SCR`, the second `SCR2`, and `SCR_02` + `SCR_05` no longer
+   * both claim `SCR2` and overwrite each other. This one assignment feeds the
+   * "on disk" badge, the skip-existing filter and the download's save-name
+   * overrides, so a type can never be reported against one file and written to
+   * another.
+   */
+  private readonly saveBaseByType = computed<Map<string, string>>(() => {
+    const chosen = this.selected();
+    return artSaveNamesForSelection([
+      ...chosen,
+      ...this.options()
+        .map((o) => o.type)
+        .filter((t) => !chosen.has(t)),
+    ]);
+  });
+
+  /** File base a type is written under, e.g. `SCR_05` → `SCR2`. */
+  saveBaseFor(type: string): string {
+    return this.saveBaseByType().get(type) ?? type.toUpperCase();
+  }
+
+  /** Whether the file this type would be written to is already on disk. */
+  alreadySaved(type: string): boolean {
+    return this.existingSaveFiles().has(this.saveBaseFor(type));
+  }
+
+  /** Distinct on-disk save files among a set of options. */
+  private savedBases(options: ArtworkOption[]): Set<string> {
+    return new Set(
+      options
+        .filter((o) => this.alreadySaved(o.type))
+        .map((o) => this.saveBaseFor(o.type)),
+    );
+  }
+
   /** Count of distinct artwork files that already exist on disk. */
-  readonly savedCount = computed(
-    () =>
-      new Set(
-        this.options()
-          .filter((o) => o.alreadySaved)
-          .map((o) => artSaveNameForType(o.type)),
-      ).size,
-  );
+  readonly savedCount = computed(() => this.savedBases(this.options()).size);
 
   /** Available artwork grouped by purpose; unknown types land in "Other". */
   readonly categories = computed<ArtCategory[]>(() => {
@@ -113,11 +146,7 @@ export class ArtworkWizardDialogComponent {
         selectedCount: selectedInCat.length,
         indeterminate:
           selectedInCat.length > 0 && selectedInCat.length < maxSelectable,
-        savedCount: new Set(
-          catOptions
-            .filter((o) => o.alreadySaved)
-            .map((o) => artSaveNameForType(o.type)),
-        ).size,
+        savedCount: this.savedBases(catOptions).size,
       };
     };
 
@@ -141,7 +170,7 @@ export class ArtworkWizardDialogComponent {
   constructor(
     private readonly _jobs: JobsService,
     private readonly _library: LibraryService,
-  ) {}
+  ) { }
 
   private get isPs1Launcher(): boolean {
     return !!this.game().isPs1Launcher;
@@ -191,35 +220,49 @@ export class ArtworkWizardDialogComponent {
       const dirPath = this._library.currentDirectoryValue;
       const localName = this.localName;
       const ps1VcdStem = this.ps1VcdStem;
-      // Existing files are probed by their on-disk name, so backgrounds look
-      // for the OPL-compatible `<stem>_BG.png` file.
-      const fileNameFor = (stem: string, type: string) =>
-        `${stem}_${artSaveNameForType(type)}.png`;
-      const expectedFiles = result.data.flatMap((d) => {
-        const names = [fileNameFor(localName, d.type)];
-        if (ps1VcdStem) names.push(fileNameFor(ps1VcdStem, d.type));
-        return names;
-      });
+      // Existence is probed by save base, not by database code: art is stored as
+      // the file OPL reads, and a screenshot can land on either of the two
+      // slots, so both are probed for every screenshot. The exact stem each base
+      // may be saved under is kept so a hit maps back to its base unambiguously
+      // (`SLUS` must not swallow `SLUS_Title_COV.png`).
+      const stems = ps1VcdStem === undefined ? [localName] : [localName, ps1VcdStem];
+      const baseOfFile = new Map<string, string>();
+      for (const stem of stems) {
+        for (const d of result.data) {
+          for (const base of artSaveNameCandidates(d.type)) {
+            baseOfFile.set(`${stem}_${base}.png`, base);
+          }
+        }
+      }
       const existing = dirPath
-        ? await window.libraryAPI.checkArtFilesExist(`${dirPath}/ART`, expectedFiles)
+        ? await window.libraryAPI.checkArtFilesExist(
+          `${dirPath}/ART`,
+          [...baseOfFile.keys()],
+        )
         : [];
-      const existingSet = new Set(existing);
+      this.existingSaveFiles.set(
+        new Set(
+          existing
+            .map((name) => baseOfFile.get(name))
+            .filter((base): base is string => base !== undefined),
+        ),
+      );
 
       this.options.set(
         result.data.map((d) => ({
           type: d.type,
           label: artTypeLabel(d.type),
           downloadUrl: d.downloadUrl,
-          alreadySaved:
-            existingSet.has(fileNameFor(localName, d.type)) ||
-            (ps1VcdStem !== undefined &&
-              existingSet.has(fileNameFor(ps1VcdStem, d.type))),
         })),
       );
 
       this.selected.set(
         this.normalizeSelection(new Set(result.data.map((d) => d.type))),
       );
+      // "Skip existing" starts on, so the pre-selection must not quietly carry
+      // files that are already on disk into a download that would replace them.
+      this.selectionBeforeSkip = new Set(this.selected());
+      this.applySkipFilter();
       this.loading.set(false);
     } catch (err) {
       this.errorMessage.set(
@@ -247,7 +290,7 @@ export class ArtworkWizardDialogComponent {
   screenshotsFull(): boolean {
     let count = 0;
     for (const t of this.selected()) {
-      if (isScreenshotCode(t)) count += 1;
+      if (isScreenshotArtCode(t)) count += 1;
     }
     return count >= MAX_SCREENSHOTS;
   }
@@ -256,36 +299,34 @@ export class ArtworkWizardDialogComponent {
    *  is not the currently selected card. */
   isCardDisabled(type: string): boolean {
     return (
-      isScreenshotCode(type) &&
+      isScreenshotArtCode(type) &&
       !this.isSelected(type) &&
       this.screenshotsFull()
     );
   }
 
   /** Type codes whose save file is shared with at least one other option
-   *  (all `SCR_0n` variants collide on `_SCR{.png|2.png}`, and any other type
-   *  whose save base is used by more than one option). Memoised once when the
-   *  options change so the template lookups are O(1). */
+   *  (any number of `BG_*` collapses on `<stem>_BG.png`, and screenshots past
+   *  the first two all land on `<stem>_SCR2.png`). Memoised so the template
+   *  lookups are O(1). */
   private readonly sharedSaveTypes = computed<Set<string>>(() => {
     const baseCount = new Map<string, number>();
     for (const o of this.options()) {
-      const base = artSaveNameForType(o.type);
+      const base = this.saveBaseFor(o.type);
       baseCount.set(base, (baseCount.get(base) ?? 0) + 1);
     }
-    const shared = new Set<string>();
-    for (const o of this.options()) {
-      if (isScreenshotCode(o.type) || (baseCount.get(artSaveNameForType(o.type)) ?? 0) > 1) {
-        shared.add(o.type);
-      }
-    }
-    return shared;
+    return new Set(
+      this.options()
+        .filter((o) => (baseCount.get(this.saveBaseFor(o.type)) ?? 0) > 1)
+        .map((o) => o.type),
+    );
   });
 
   /**
-   * Whether an individual "on disk" badge would be misleading: several
-   * options save to the same file (all `BG_*` collide on `<stem>_BG.png`, all
-   * `SCR_0n` land on `<stem>_SCR.png` or `<stem>_SCR2.png`). The existence is
-   * then reported once at the category level instead.
+   * Whether an individual "on disk" badge would be misleading: several options
+   * save to the same file (any `BG_*` collapses on `<stem>_BG.png`, screenshots
+   * past the second on `<stem>_SCR2.png`). The existence is then reported once
+   * at the category level instead.
    */
   sharesSaveTarget(type: string): boolean {
     return this.sharedSaveTypes().has(type);
@@ -344,8 +385,15 @@ export class ArtworkWizardDialogComponent {
   }
 
   selectAll(): void {
+    const all = this.options().map((o) => o.type);
+    // "Select all" must not quietly re-check files the active policy leaves
+    // alone, or the button's count stops matching what a download would write.
+    // Filtering before normalising lets a freed screenshot/background slot be
+    // filled by the next candidate rather than sitting empty.
     this.selected.set(
-      this.normalizeSelection(new Set(this.options().map((o) => o.type))),
+      this.normalizeSelection(
+        new Set(this.skipExisting() ? all.filter((t) => !this.alreadySaved(t)) : all),
+      ),
     );
   }
 
@@ -362,7 +410,7 @@ export class ArtworkWizardDialogComponent {
       if (this.isSingleSelectType(t)) {
         if (singleKept) next.delete(t);
         else singleKept = true;
-      } else if (isScreenshotCode(t)) {
+      } else if (isScreenshotArtCode(t)) {
         if (screenshotsKept < MAX_SCREENSHOTS) screenshotsKept += 1;
         else next.delete(t);
       }
@@ -377,9 +425,34 @@ export class ArtworkWizardDialogComponent {
   /** Selection snapshot taken when "skip existing" is switched on. */
   private selectionBeforeSkip = new Set<string>();
 
-  isSavedType(type: string): boolean {
-    return this.options().some((o) => o.type === type && o.alreadySaved);
+  /**
+   * Uncheck every option whose file is already in the ART folder, so the cards
+   * the user sees match what a download would actually write.
+   */
+  private applySkipFilter(): void {
+    const kept = [...this.selected()].filter((t) => !this.alreadySaved(t));
+    this.selected.set(this.normalizeSelection(new Set(kept)));
   }
+
+  /**
+   * On-disk save files among the options that are currently *selected* — what
+   * this run would actually replace, rather than everything the game has.
+   */
+  private readonly selectedSavedBases = computed(() =>
+    this.savedBases(this.options().filter((o) => this.selected().has(o.type))),
+  );
+
+  /**
+   * Whether this run would replace a file that already exists: skip-existing is
+   * off and a selected option is on disk. This is what the footer button
+   * announces, and what decides whether the worker needs to ask first.
+   */
+  readonly willOverwriteSelected = computed(
+    () =>
+      !this.skipExisting() &&
+      this.selectedCount() > 0 &&
+      this.selectedSavedBases().size > 0,
+  );
 
   /**
    * "Skip existing artwork" toggle. Turning it on unchecks whatever is already
@@ -390,8 +463,7 @@ export class ArtworkWizardDialogComponent {
     const enabling = !this.skipExisting();
     if (enabling) {
       this.selectionBeforeSkip = new Set(this.selected());
-      const kept = [...this.selected()].filter((t) => !this.isSavedType(t));
-      this.selected.set(this.normalizeSelection(new Set(kept)));
+      this.applySkipFilter();
     } else {
       this.selected.set(new Set(this.selectionBeforeSkip));
     }
@@ -403,16 +475,12 @@ export class ArtworkWizardDialogComponent {
     let types = Array.from(this.selected());
     if (types.length === 0) return;
 
-    // With "skip existing" on, drop types that already exist under either
-    // naming convention (gameId or VCD title stem) — otherwise the worker
-    // would only skip gameId-named files and re-fetch a title-saved cover.
+    // With "skip existing" on, drop types whose file already exists under the
+    // save base it would be written to (gameId- or VCD-title-named alike) —
+    // otherwise the worker would only skip gameId-named files and re-fetch a
+    // title-saved cover.
     if (this.skipExisting()) {
-      const saved = new Set(
-        this.options()
-          .filter((o) => o.alreadySaved)
-          .map((o) => o.type),
-      );
-      types = types.filter((t) => !saved.has(t));
+      types = types.filter((t) => !this.alreadySaved(t));
     }
     if (types.length === 0) {
       this.close();
@@ -420,16 +488,16 @@ export class ArtworkWizardDialogComponent {
     }
 
     // Family assets keep the DB code for the fetch URL but must be saved under
-    // the base file OPL reads. One rule for all three consumers — the "on disk"
-    // badge, the skip-existing filter and this map — so a type can never be
-    // reported as `GAMEID_SCR2.png` and then written as `GAMEID_SCR.png`.
-    // Backgrounds collapse to `<gameID>_BG.png`, `SCR_00` to
-    // `<gameID>_SCR.png` and any other `SCR_0n` to `<gameID>_SCR2.png`.
-    // (Two chosen screenshots that both resolve to `SCR2`, e.g. `SCR_02` and
-    // `SCR_05`, share one file — the category's saved count shows it as one.)
+    // the file OPL reads. One assignment for all three consumers — the "on
+    // disk" badge, the skip-existing filter and this map — so a type can never
+    // be reported as `GAMEID_SCR2.png` and then written as `GAMEID_SCR.png`.
+    // Backgrounds collapse to `<gameID>_BG.png`; the two screenshot slots go
+    // out by selection order, so the first pick is `<gameID>_SCR.png` and the
+    // second `<gameID>_SCR2.png` — two picks are always two files, never one
+    // written twice.
     const artSaveAsOverrides: Record<string, string> = {};
     for (const t of types) {
-      const saveBase = artSaveNameForType(t);
+      const saveBase = this.saveBaseFor(t);
       if (saveBase !== t.toUpperCase()) artSaveAsOverrides[t] = saveBase;
     }
 
@@ -448,7 +516,20 @@ export class ArtworkWizardDialogComponent {
           Object.keys(artSaveAsOverrides).length > 0
             ? artSaveAsOverrides
             : undefined,
-        overwrite: !this.skipExisting(),
+        // `true` — the reviewed selection knowingly replaces files on disk;
+        // `false` — "skip existing" is on, so fetch only what is missing;
+        // `undefined` — nothing selected exists yet, nothing to confirm.
+        //
+        // The three states must not be collapsed. Sending `true` whenever skip is
+        // off silently replaced artwork a user had already curated, and the
+        // footer was still labelled "Download Selected". Sending `undefined`
+        // under a skip policy would instead let the worker pop a confirmation
+        // for a run that is only ever meant to fill gaps.
+        overwrite: this.willOverwriteSelected()
+          ? true
+          : this.skipExisting()
+            ? false
+            : undefined,
       },
     ]);
     this.close();

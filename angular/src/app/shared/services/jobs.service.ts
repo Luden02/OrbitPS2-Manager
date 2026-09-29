@@ -62,7 +62,6 @@ export interface ImportJob {
    * ZSO/zso-to-iso/vcd-to-bin only: remove the source file once the
    * conversion succeeds.
    */
-  /** ZSO only: remove the source ISO once compression succeeds. */
   deleteOriginal?: boolean;
   /**
    * PS2 DVD only: use OPL's "new" naming convention — rename to just
@@ -143,7 +142,7 @@ export class JobsService {
     private readonly _logger: LogsService,
     private readonly _library: LibraryService,
     private readonly _confirm: ConfirmDialogService,
-  ) {}
+  ) { }
 
   /** Queue one or more imports and kick the worker if idle. */
   public enqueue(jobs: NewImportJob[]): ImportJob[] {
@@ -192,17 +191,17 @@ export class JobsService {
       this.jobsSubject.value.map((j) =>
         j.id === id
           ? {
-              ...j,
-              logs: [
-                ...(j.logs ?? []),
-                {
-                  id: j.logs?.length ?? 0,
-                  time: now.toLocaleTimeString('en-US', { hour12: false }),
-                  text,
-                  type,
-                },
-              ],
-            }
+            ...j,
+            logs: [
+              ...(j.logs ?? []),
+              {
+                id: j.logs?.length ?? 0,
+                time: now.toLocaleTimeString('en-US', { hour12: false }),
+                text,
+                type,
+              },
+            ],
+          }
           : j,
       ),
     );
@@ -429,9 +428,17 @@ export class JobsService {
       job.wideSlotFallback,
     );
 
+    // Per-type outcome. `runJob` must report `success` whenever anything was
+    // written — that is what queues the game for `pendingArtRefresh` — but a
+    // run where two of three types 404'd is not a clean download, and the
+    // dialogs tally job status, so the shortfall has to be stated here.
+    let savedCount = 0;
+    const failedTypes: string[] = [];
+
     if (result?.data) {
       const saved = result.data.filter((r: any) => r.savedPath);
       const failed = result.data.filter((r: any) => r.error);
+      savedCount = saved.length;
       for (const item of saved) {
         this.logJob(
           job.id,
@@ -440,6 +447,7 @@ export class JobsService {
         );
       }
       for (const item of failed) {
+        failedTypes.push(item.type);
         const notFound = /404/.test(item.error ?? '');
         this.logJob(
           job.id,
@@ -457,9 +465,21 @@ export class JobsService {
       }
     }
 
-    const message = isOverwrite
-      ? 'Artwork overwritten.'
-      : 'Artwork downloaded.';
+    const verb = isOverwrite ? 'overwritten' : 'downloaded';
+
+    if (failedTypes.length > 0) {
+      // Still a success — the files that were written have to be picked up by
+      // `pendingArtRefresh` — but "Artwork downloaded." on its own would report
+      // a partial run as a clean one.
+      const total = toDownload.length;
+      const message =
+        `Artwork partially ${verb} — ${savedCount} of ${total} asset${total === 1 ? '' : 's'} ` +
+        `written; missing: ${failedTypes.join(', ')}.`;
+      this.logJob(job.id, message, 'error');
+      return { success: true, message };
+    }
+
+    const message = `Artwork ${verb}.`;
     this.logJob(job.id, message, 'success');
     return { success: true, message };
   }

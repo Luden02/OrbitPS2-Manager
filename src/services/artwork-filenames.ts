@@ -5,13 +5,34 @@ const INDEXED_REMOTE_TYPES: Record<string, string> = {
   BG: "BG_00",
 };
 
-export function artRemoteFileNames(gameId: string, type: string): string[] {
+/**
+ * Candidates for one slot, in the order they should be tried.
+ *
+ * `exclude` holds the remote file names an earlier type of the same call already
+ * wrote. `reserved` on its own only stops a slot from *preferring* a sibling's
+ * indexed code — it cannot know which variant an earlier slot fell back to, so
+ * without `exclude` every slot walks the same tail and saves one image several
+ * times over (a game whose database only holds `SCR_05` fills both `SCR` and
+ * `SCR2` with it).
+ */
+export function artRemoteFileNames(
+  gameId: string,
+  type: string,
+  exclude?: ReadonlySet<string>
+): string[] {
   const classic = `${gameId}_${type}.png`;
   const indexedType = INDEXED_REMOTE_TYPES[type];
   if (!indexedType) {
-    return [classic];
+    return without(exclude, [classic]);
   }
-  return [`${gameId}_${indexedType}.png`, classic];
+  return without(exclude, [`${gameId}_${indexedType}.png`, classic]);
+}
+
+function without(
+  exclude: ReadonlySet<string> | undefined,
+  names: string[]
+): string[] {
+  return exclude ? names.filter((name) => !exclude.has(name)) : names;
 }
 
 /**
@@ -42,17 +63,26 @@ const SLOT_VARIANT_FAMILIES: Record<
  * indexed variants are appended behind them. Use this for bulk runs, where a
  * game whose database only holds e.g. `SCR_05` should still end up with a
  * screenshot instead of no artwork at all.
+ *
+ * `exclude` drops the files an earlier type of the same call already wrote — see
+ * {@link artRemoteFileNames}.
  */
-export function artSlotFileNames(gameId: string, type: string): string[] {
+export function artSlotFileNames(
+  gameId: string,
+  type: string,
+  exclude?: ReadonlySet<string>
+): string[] {
   const names = artRemoteFileNames(gameId, type);
   const family = SLOT_VARIANT_FAMILIES[type];
-  if (!family) return names;
 
-  for (let i = 0; i <= family.max; i += 1) {
-    const code = `${family.prefix}_${String(i).padStart(2, "0")}`;
-    if (family.reserved.includes(code)) continue;
-    const fileName = `${gameId}_${code}.png`;
-    if (!names.includes(fileName)) names.push(fileName);
+  if (family) {
+    for (let i = 0; i <= family.max; i += 1) {
+      const code = `${family.prefix}_${String(i).padStart(2, "0")}`;
+      if (family.reserved.includes(code)) continue;
+      const fileName = `${gameId}_${code}.png`;
+      if (!names.includes(fileName)) names.push(fileName);
+    }
   }
-  return names;
+
+  return without(exclude, names);
 }

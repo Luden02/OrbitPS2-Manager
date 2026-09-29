@@ -16,25 +16,75 @@ const INDEXED_LABEL_BASE: Record<string, string> = {
   BG: 'Background',
 };
 
+/** Indexed database variants, e.g. `SCR_00` or `BG_02`. */
+const INDEXED_CODE_RE = /^(SCR|BG)_(\d{1,2})$/i;
+
+/** Every screenshot code: the two classic slots and their indexed variants. */
+const SCREENSHOT_CODE_RE = /^(?:SCR|SCR2|SCR_\d{1,2})$/i;
+
+/** How many screenshots Open PS2 Loader shows. */
+export const MAX_SCREENSHOTS = 2;
+
+/** The screenshot files OPL reads, in display order. */
+const SCREENSHOT_SAVE_SLOTS = ['SCR', 'SCR2'] as const;
+
 /**
- * Returns the file-name base a type code must be saved under.
+ * Whether a type code is a screenshot OPL can show — an indexed database variant
+ * (`SCR_00`, `SCR_05`) or a classic slot name (`SCR`, `SCR2`).
+ */
+export function isScreenshotArtCode(code: string): boolean {
+  return SCREENSHOT_CODE_RE.test(code);
+}
+
+/**
+ * Returns the family base a type code belongs to, without picking a screenshot
+ * slot.
  *
  * Open PS2 Loader only reads the recognised asset files of a family, so the
  * database's indexed variants keep their position but lose the index:
  *   - `BG_00` / `BG_01` / … → `BG`  → saved as `<gameID>_BG.png` (one kept)
- *   - `SCR_00` → `SCR`, any other `SCR_0n` → `SCR2` → saved as
- *     `<gameID>_SCR.png` and `<gameID>_SCR2.png` (the two screenshots OPL shows)
+ *   - `SCR_00` / `SCR_05` / … → `SCR` → saved as `<gameID>_SCR.png` or
+ *     `<gameID>_SCR2.png`
  *   - anything else keeps its code (`COV`, `COV2`, …)
+ *
+ * Which of the two screenshot files a code lands in is a *selection* decision,
+ * not one the code itself can make — see {@link artSaveNamesForSelection}.
  */
 export function artSaveNameForType(code: string): string {
-  const indexed = /^(SCR|BG)_(\d{1,2})$/i.exec(code);
-  if (!indexed) return code.toUpperCase();
-  const base = indexed[1].toUpperCase();
-  if (base === 'BG') return 'BG';
-  if (base === 'SCR') {
-    return parseInt(indexed[2], 10) === 0 ? 'SCR' : 'SCR2';
+  const indexed = INDEXED_CODE_RE.exec(code);
+  return indexed ? indexed[1].toUpperCase() : code.toUpperCase();
+}
+
+/** Every save base a type code can occupy; screenshots may take either slot. */
+export function artSaveNameCandidates(code: string): string[] {
+  return isScreenshotArtCode(code)
+    ? [...SCREENSHOT_SAVE_SLOTS]
+    : [artSaveNameForType(code)];
+}
+
+/**
+ * Assigns the file base each type is saved under.
+ *
+ * `types` must be in the order the user picked them: the two screenshot slots OPL
+ * reads are handed out by selection order, so any two picks land in two
+ * different files. `SCR_02` and `SCR_05` save as `SCR` and `SCR2` instead of
+ * both claiming `SCR2` and overwriting each other. Backgrounds collapse to
+ * `BG` (OPL keeps one) and every other type keeps its code. Picks past the
+ * second screenshot repeat the last slot, mirroring OPL's own cap.
+ */
+export function artSaveNamesForSelection(types: Iterable<string>): Map<string, string> {
+  const saveNames = new Map<string, string>();
+  let nextSlot = 0;
+  for (const type of types) {
+    if (isScreenshotArtCode(type)) {
+      const slot = Math.min(nextSlot, SCREENSHOT_SAVE_SLOTS.length - 1);
+      saveNames.set(type, SCREENSHOT_SAVE_SLOTS[slot]);
+      nextSlot += 1;
+    } else {
+      saveNames.set(type, artSaveNameForType(type));
+    }
   }
-  return code.toUpperCase();
+  return saveNames;
 }
 
 /**
@@ -44,7 +94,7 @@ export function artSaveNameForType(code: string): string {
  */
 export function artTypeLabel(code: string): string {
   if (ART_TYPE_LABELS[code]) return ART_TYPE_LABELS[code];
-  const indexed = /^(SCR|BG)_(\d{1,2})$/i.exec(code);
+  const indexed = INDEXED_CODE_RE.exec(code);
   if (indexed) {
     const base = INDEXED_LABEL_BASE[indexed[1].toUpperCase()];
     return `${base} ${parseInt(indexed[2], 10) + 1}`;

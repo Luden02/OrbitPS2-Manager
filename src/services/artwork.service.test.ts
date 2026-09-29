@@ -245,6 +245,128 @@ test("wide fallback never reuses a sibling slot's indexed screenshot", async () 
   });
 });
 
+test("wide fallback leaves a sibling slot empty when only a later variant exists", async () => {
+  await withTempDir(async (dir) => {
+    const requested: string[] = [];
+    // `reserved` cannot help here: neither slot owns SCR_05, so SCR walks the
+    // whole tail and claims it. SCR2 must not then save that same image a second
+    // time — that would overwrite a real SCR2 with a copy of SCR.
+    await downloadArtByGameId(
+      dir,
+      "SLUS_208.51",
+      "PS2",
+      undefined,
+      ["SCR", "SCR2"],
+      async (_url, fileName) => {
+        requested.push(fileName);
+        if (fileName.endsWith("_SCR_05.png")) return Buffer.from("shot-5");
+        throw new Error(`Failed to download ${fileName}: 404`);
+      },
+      undefined,
+      true
+    );
+
+    assert.equal(requested.includes("SLUS_208.51_SCR_05.png"), true);
+    assert.equal(
+      requested.filter((f) => f.endsWith("_SCR_05.png")).length,
+      1,
+      "SCR_05 belongs to whichever slot reached it first"
+    );
+    assert.equal(await fs.readFile(path.join(dir, "SLUS_208.51_SCR.png"), "utf8"), "shot-5");
+    await assert.rejects(
+      () => fs.readFile(path.join(dir, "SLUS_208.51_SCR2.png")),
+      "SCR2 must stay missing rather than hold a copy of SCR"
+    );
+  });
+});
+
+test("one image is never written into two slots across a whole bulk call", async () => {
+  await withTempDir(async (dir) => {
+    const requested: string[] = [];
+    const result = await downloadArtByGameId(
+      dir,
+      "SLUS_208.51",
+      "PS2",
+      undefined,
+      ["COV", "SCR", "SCR2", "SCR3", "BG"],
+      async (_url, fileName) => {
+        requested.push(fileName);
+        if (fileName.endsWith("_SCR_05.png")) return Buffer.from("shot-5");
+        if (fileName.endsWith("_BG_03.png")) return Buffer.from("bg-3");
+        if (fileName.endsWith("_COV.png")) return Buffer.from("cover");
+        throw new Error(`Failed to download ${fileName}: 404`);
+      },
+      undefined,
+      true
+    );
+
+    // Only a written file is a claim: a 404 is retried by the next slot, since
+    // the failure may be a transient one rather than a missing database entry.
+    assert.equal(
+      requested.filter((f) => f.endsWith("_SCR_05.png")).length,
+      1,
+      "SCR_05 was saved by SCR and must not be fetched again for SCR2 or SCR3"
+    );
+
+    const saved = result.data.filter((r: any) => r.savedPath);
+    const sources = saved.map((r: any) => r.source);
+    assert.equal(
+      new Set(sources).size,
+      sources.length,
+      `one image saved into two slots: ${sources.join(", ")}`
+    );
+    // The single screenshot fills the first slot; the other two stay missing
+    // instead of each saving their own copy of it.
+    assert.deepEqual(saved.map((r: any) => r.type).sort(), ["BG", "COV", "SCR"]);
+    await assert.rejects(() => fs.readFile(path.join(dir, "SLUS_208.51_SCR2.png")));
+    await assert.rejects(() => fs.readFile(path.join(dir, "SLUS_208.51_SCR3.png")));
+  });
+});
+
+test("a slot with no unique candidate left is reported as missing", async () => {
+  await withTempDir(async (dir) => {
+    // The same code twice: the second pass has nothing left to try and must
+    // report the miss rather than write a second copy.
+    const result = await downloadArtByGameId(
+      dir,
+      "SLUS_208.51",
+      "PS2",
+      undefined,
+      ["SCR_05", "SCR_05"],
+      async (_url, fileName) => Buffer.from("shot-5"),
+      undefined,
+      true
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(result.data[0].savedPath, path.join(dir, "SLUS_208.51_SCR_05.png"));
+    assert.equal(result.data[1].savedPath, undefined);
+    assert.match(result.data[1].error, /No unique SCR_05 artwork left/);
+  });
+});
+
+test("slots with distinct images still both fill", async () => {
+  await withTempDir(async (dir) => {
+    await downloadArtByGameId(
+      dir,
+      "SLUS_208.51",
+      "PS2",
+      undefined,
+      ["SCR", "SCR2"],
+      async (_url, fileName) => {
+        if (fileName.endsWith("_SCR_00.png")) return Buffer.from("shot-0");
+        if (fileName.endsWith("_SCR_01.png")) return Buffer.from("shot-1");
+        throw new Error(`Failed to download ${fileName}: 404`);
+      },
+      undefined,
+      true
+    );
+
+    assert.equal(await fs.readFile(path.join(dir, "SLUS_208.51_SCR.png"), "utf8"), "shot-0");
+    assert.equal(await fs.readFile(path.join(dir, "SLUS_208.51_SCR2.png"), "utf8"), "shot-1");
+  });
+});
+
 test("wide fallback fills BG from a later indexed background", async () => {
   await withTempDir(async (dir) => {
     const requested: string[] = [];
@@ -351,5 +473,114 @@ test("saveAsName still drives the local stem of an overridden type", async () =>
       ),
       "shot"
     );
+  });
+});
+
+test("a local write failure ends that type instead of re-fetching", async () => {
+  await withTempDir(async (dir) => {
+    // A directory sitting where the file must go: the download succeeds, the
+    // write cannot. The bytes are already in hand, so walking the remaining
+    // candidates would only re-fetch this same image once per URL left.
+    const artDir = path.join(dir, "ART");
+    await fs.mkdir(path.join(artDir, "SLUS_208.51_SCR.png"), { recursive: true });
+    const requested: string[] = [];
+
+    const result = await downloadArtByGameId(
+      artDir,
+      "SLUS_208.51",
+      "PS2",
+      undefined,
+      ["SCR"],
+      async (_url, fileName) => {
+        requested.push(fileName);
+        if (fileName.endsWith("_SCR_00.png")) return Buffer.from("shot");
+        throw new Error(`Failed to download ${fileName}: 404`);
+      },
+      undefined,
+      true
+    );
+
+    assert.deepEqual(requested, ["SLUS_208.51_SCR_00.png"]);
+    assert.equal(result.success, false);
+    assert.equal(result.data[0].savedPath, undefined);
+    assert.match(result.data[0].error, /Failed to save SCR artwork/);
+  });
+});
+
+test("a write failure on one type does not abandon the rest", async () => {
+  await withTempDir(async (dir) => {
+    const artDir = path.join(dir, "ART");
+    await fs.mkdir(path.join(artDir, "SLUS_208.51_SCR.png"), { recursive: true });
+
+    const result = await downloadArtByGameId(
+      artDir,
+      "SLUS_208.51",
+      "PS2",
+      undefined,
+      ["SCR", "COV"],
+      async (_url, fileName) => {
+        if (fileName.endsWith("_SCR_00.png")) return Buffer.from("shot");
+        if (fileName.endsWith("_COV.png")) return Buffer.from("cover");
+        throw new Error(`Failed to download ${fileName}: 404`);
+      }
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(
+      await fs.readFile(path.join(artDir, "SLUS_208.51_COV.png"), "utf8"),
+      "cover"
+    );
+    assert.equal(result.data.length, 2);
+    assert.match(result.data[0].error, /Failed to save SCR artwork/);
+  });
+});
+
+test("creates the artwork folder when it does not exist yet", async () => {
+  await withTempDir(async (dir) => {
+    const artDir = path.join(dir, "ART");
+
+    const result = await downloadArtByGameId(
+      artDir,
+      "SLUS_208.51",
+      "PS2",
+      undefined,
+      ["COV"],
+      async () => Buffer.from("cover")
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(
+      await fs.readFile(path.join(artDir, "SLUS_208.51_COV.png"), "utf8"),
+      "cover"
+    );
+  });
+});
+
+test("reports a folder it cannot create instead of downloading into nothing", async () => {
+  await withTempDir(async (dir) => {
+    // A plain file where the folder should be: nothing can be written into it.
+    const blocked = path.join(dir, "ART");
+    await fs.writeFile(blocked, "not a folder");
+    const requested: string[] = [];
+
+    const result = await downloadArtByGameId(
+      blocked,
+      "SLUS_208.51",
+      "PS2",
+      undefined,
+      ["COV", "SCR"],
+      async (_url, fileName) => {
+        requested.push(fileName);
+        return Buffer.from("bytes");
+      }
+    );
+
+    assert.equal(result.success, false);
+    assert.match(result.message ?? "", /Could not create artwork folder/);
+    assert.deepEqual(requested, [], "nothing may be fetched when nothing can be written");
+    assert.equal(result.data.length, 2);
+    for (const entry of result.data) {
+      assert.match(entry.error, /Could not create artwork folder/);
+    }
   });
 });

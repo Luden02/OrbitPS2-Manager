@@ -96,7 +96,8 @@
   transform: scale(0.97);
 }
 
-/* Model-driven radio-tile — same idea as .ab-box, for overwrite policy. */
+/* Model-driven radio-tile for the overwrite policy; the parent .ab-policy
+   tile supplies the border and background. */
 .ab-dot {
   width: 1rem;
   height: 1rem;

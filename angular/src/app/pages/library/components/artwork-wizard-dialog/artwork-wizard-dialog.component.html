@@ -1,9 +1,19 @@
 <div class="aw-backdrop" (click)="close()"></div>
-<div class="aw-modal glass-strong" role="dialog" aria-modal="true" aria-labelledby="aw-dialog-title">
-  <div class="flex items-center gap-2 border-b border-base-content/10 px-5 py-3">
+<div
+  class="aw-modal glass-strong"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="aw-dialog-title"
+>
+  <div
+    class="flex items-center gap-2 border-b border-base-content/10 px-5 py-3"
+  >
     <i-lucide name="image-down" size="18" class="text-accent"></i-lucide>
     <div class="min-w-0">
-      <h2 id="aw-dialog-title" class="truncate font-display text-sm font-semibold tracking-wide">
+      <h2
+        id="aw-dialog-title"
+        class="truncate font-display text-sm font-semibold tracking-wide"
+      >
         Download artwork
       </h2>
       <p class="truncate font-mono text-[0.68rem] text-base-content/50">
@@ -20,16 +30,28 @@
       <span class="loading loading-spinner text-accent"></span>
     </div>
   } @else if (errorMessage()) {
-    <div class="flex flex-1 flex-col items-center justify-center gap-2 px-5 text-center">
-      <i-lucide name="image-off" size="28" class="text-base-content/40"></i-lucide>
+    <div
+      class="flex flex-1 flex-col items-center justify-center gap-2 px-5 text-center"
+    >
+      <i-lucide
+        name="image-off"
+        size="28"
+        class="text-base-content/40"
+      ></i-lucide>
       <p class="text-sm text-base-content/60">{{ errorMessage() }}</p>
     </div>
-    <div class="flex justify-end gap-2 border-t border-base-content/10 px-5 py-3">
+    <div
+      class="flex justify-end gap-2 border-t border-base-content/10 px-5 py-3"
+    >
       <button class="btn btn-ghost btn-sm" (click)="close()">Close</button>
     </div>
   } @else {
-    <!-- Fixed: existing-artwork notice + toolbar -->
-    <div class="aw-fixed flex flex-col gap-4 px-5 py-4 pr-1">
+    <!-- Fixed: existing-artwork notice + toolbar.
+         Symmetric `px-5` only. The scrollable zone below carries a reduced
+         right padding to offset its own scrollbar; this zone never scrolls,
+         so that compensation would just push the toolbar's right edge 1rem
+         past the header and footer. -->
+    <div class="aw-fixed flex flex-col gap-4 px-5 py-4">
       <!-- Existing artwork notice -->
       @if (savedCount() > 0) {
         <div
@@ -53,7 +75,9 @@
                 [class.text-warning]="!skipExisting()"
                 [class.text-info]="skipExisting()"
               >
-                {{ savedCount() }} existing artwork file{{ savedCount() === 1 ? '' : 's' }}
+                {{ savedCount() }} existing artwork file{{
+                  savedCount() === 1 ? "" : "s"
+                }}
               </span>
               <span class="block text-base-content/70">
                 @if (skipExisting()) {
@@ -69,12 +93,18 @@
 
       <!-- Toolbar -->
       <div class="flex items-center justify-between">
-        <span class="text-xs font-semibold uppercase tracking-wide text-base-content/55">
+        <span
+          class="text-xs font-semibold uppercase tracking-wide text-base-content/55"
+        >
           Available artwork
         </span>
         <div class="flex gap-1">
-          <button class="btn btn-xs btn-ghost" (click)="selectAll()">Select all</button>
-          <button class="btn btn-xs btn-ghost" (click)="deselectAll()">None</button>
+          <button class="btn btn-xs btn-ghost" (click)="selectAll()">
+            Select all
+          </button>
+          <button class="btn btn-xs btn-ghost" (click)="deselectAll()">
+            None
+          </button>
         </div>
       </div>
     </div>
@@ -83,22 +113,36 @@
     <div class="aw-scroll flex flex-col gap-4 px-5 py-2 pr-1">
       @for (category of categories(); track category.id) {
         <section>
-          <div class="aw-cat-header">
+          <div
+            class="aw-cat-header"
+            [class.is-collapsed]="isCollapsed(category.id)"
+          >
             <button
               type="button"
               class="aw-cat-toggle"
               (click)="toggleExpanded(category)"
-              [title]="isCollapsed(category.id) ? 'Expand ' + category.label : 'Collapse ' + category.label"
+              [title]="
+                isCollapsed(category.id)
+                  ? 'Expand ' + category.label
+                  : 'Collapse ' + category.label
+              "
             >
               <i-lucide
-                [name]="isCollapsed(category.id) ? 'chevron-right' : 'chevron-down'"
+                [name]="
+                  isCollapsed(category.id) ? 'chevron-right' : 'chevron-down'
+                "
                 size="14"
                 class="shrink-0 text-base-content/50"
               ></i-lucide>
-              <span class="aw-cat-title" [class.is-selected]="category.allSelected">
+              <span
+                class="aw-cat-title"
+                [class.is-selected]="category.allSelected"
+              >
                 {{ category.label }}
               </span>
-              <span class="ml-auto font-mono text-[0.62rem] text-base-content/45">
+              <span
+                class="ml-auto font-mono text-[0.62rem] text-base-content/45"
+              >
                 {{ category.selectedCount }}/{{ category.options.length }}
               </span>
               @if (category.savedCount > 0) {
@@ -114,10 +158,18 @@
             <button
               type="button"
               role="checkbox"
-              [attr.aria-checked]="category.allSelected ? 'true' : category.indeterminate ? 'mixed' : 'false'"
+              [attr.aria-checked]="
+                category.allSelected
+                  ? 'true'
+                  : category.indeterminate
+                    ? 'mixed'
+                    : 'false'
+              "
               class="aw-cat-check"
               [class.is-on]="category.allSelected"
-              [class.is-indeterminate]="category.indeterminate && !category.allSelected"
+              [class.is-indeterminate]="
+                category.indeterminate && !category.allSelected
+              "
               (click)="toggleCategory(category)"
               [title]="
                 isSingleSelectCategory(category)
@@ -138,10 +190,10 @@
           </div>
 
           @if (!isCollapsed(category.id)) {
-            @if (category.id === 'backgrounds' && category.options.length > 0) {
+            @if (category.id === "backgrounds" && category.options.length > 0) {
               <p class="aw-cat-hint">Pick one background to download.</p>
             }
-            @if (category.id === 'screenshots' && category.options.length > 0) {
+            @if (category.id === "screenshots" && category.options.length > 0) {
               <p class="aw-cat-hint">Pick up to two screenshots to download.</p>
             }
             <div class="aw-grid">
@@ -153,7 +205,11 @@
                   (click)="toggle(option.type)"
                   class="aw-card"
                   [class.is-selected]="isSelected(option.type)"
-                  [class.has-saved]="option.alreadySaved && !isSelected(option.type) && !sharesSaveTarget(option.type)"
+                  [class.has-saved]="
+                    alreadySaved(option.type) &&
+                    !isSelected(option.type) &&
+                    !sharesSaveTarget(option.type)
+                  "
                   [class.is-disabled]="isCardDisabled(option.type)"
                   [disabled]="isCardDisabled(option.type)"
                   [title]="
@@ -162,17 +218,31 @@
                       : null
                   "
                 >
-                  <span class="aw-check" [class.is-on]="isSelected(option.type)">
+                  <span
+                    class="aw-check"
+                    [class.is-on]="isSelected(option.type)"
+                  >
                     @if (isSelected(option.type)) {
                       <i-lucide name="check" size="11"></i-lucide>
                     }
                   </span>
-                  <img [src]="option.downloadUrl" [alt]="option.label" loading="lazy" />
+                  <img
+                    [src]="option.downloadUrl"
+                    [alt]="option.label"
+                    loading="lazy"
+                  />
                   <div class="aw-card-meta">
-                    <span class="text-xs font-semibold">{{ option.label }}</span>
-                    <span class="font-mono text-[0.65rem] text-base-content/50">{{ option.type }}</span>
+                    <span class="text-xs font-semibold">{{
+                      option.label
+                    }}</span>
+                    <span
+                      class="font-mono text-[0.65rem] text-base-content/50"
+                      >{{ option.type }}</span
+                    >
                   </div>
-                  @if (option.alreadySaved && !sharesSaveTarget(option.type)) {
+                  @if (
+                    alreadySaved(option.type) && !sharesSaveTarget(option.type)
+                  ) {
                     <span
                       class="aw-card-badge"
                       title="This file already exists in the ART folder — selecting it replaces the file."
@@ -189,7 +259,9 @@
       }
     </div>
 
-    <div class="flex items-center justify-between gap-3 border-t border-base-content/10 px-5 py-3">
+    <div
+      class="flex items-center justify-between gap-3 border-t border-base-content/10 px-5 py-3"
+    >
       <button
         type="button"
         role="checkbox"
@@ -197,7 +269,11 @@
         class="aw-skip-toggle"
         [class.is-on]="skipExisting()"
         (click)="onSkipExistingToggle()"
-        title="Existing assets are unchecked automatically — only missing files are downloaded."
+        [title]="
+          skipExisting()
+            ? 'On: existing assets are unchecked automatically — only missing files are downloaded.'
+            : 'Off: selected assets that already exist will be replaced. The button changes to Overwrite.'
+        "
       >
         <span class="aw-check" [class.is-on]="skipExisting()">
           @if (skipExisting()) {
@@ -207,16 +283,32 @@
         <span class="text-xs text-base-content/70">Skip existing artwork</span>
       </button>
       <div class="flex items-center gap-3">
-        <span class="text-xs text-base-content/50">{{ selectedCount() }} selected</span>
+        <span class="text-xs text-base-content/50"
+          >{{ selectedCount() }} selected</span
+        >
         <div class="flex gap-2">
           <button class="btn btn-ghost btn-sm" (click)="close()">Cancel</button>
           <button
-            class="btn btn-primary btn-sm"
+            class="btn btn-sm"
+            [class.btn-primary]="!willOverwriteSelected()"
+            [class.btn-warning]="willOverwriteSelected()"
             [disabled]="selectedCount() === 0"
             (click)="download()"
+            [title]="
+              willOverwriteSelected()
+                ? 'Replaces the existing artwork files that are checked.'
+                : 'Downloads only the files that are missing.'
+            "
           >
-            <i-lucide name="download" size="15"></i-lucide>
-            Download Selected ({{ selectedCount() }})
+            <i-lucide
+              [name]="willOverwriteSelected() ? 'triangle-alert' : 'download'"
+              size="15"
+            ></i-lucide>
+            @if (willOverwriteSelected()) {
+              Overwrite Selected ({{ selectedCount() }})
+            } @else {
+              Download Selected ({{ selectedCount() }})
+            }
           </button>
         </div>
       </div>

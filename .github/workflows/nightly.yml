@@ -1,0 +1,154 @@
+name: Nightly
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: nightly
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: npm test
+
+  build:
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            args: --win
+            extra: ""
+          - os: macos-latest
+            args: --mac --x64 --arm64
+            extra: -c.mac.identity=null
+          - os: ubuntu-latest
+            args: --linux
+            extra: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            angular/package-lock.json
+      - name: Install Linux packaging tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y binutils fakeroot rpm
+      - run: npm ci
+      - run: npm ci
+        working-directory: angular
+      - name: Stamp build info
+        run: npm run build:info
+        env:
+          ORBIT_CHANNEL: nightly
+      - run: npm run build --prefix angular
+      - run: npm run build
+      - name: Package
+        run: |
+          npx electron-builder ${{ matrix.args }} --publish never \
+            -c.productName="OrbitPS2Manager Nightly" \
+            -c.appId=com.orbitps2.manager.nightly \
+            -c.extraMetadata.name=orbitps2-manager-nightly \
+            ${{ matrix.extra }}
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - name: Stage distributables
+        run: |
+          shopt -s nullglob
+          files=(build/*.exe build/*.zip build/*.dmg build/*.AppImage build/*.deb build/*.rpm)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "electron-builder produced no distributables"
+            exit 1
+          fi
+          mkdir -p staged
+          cp "${files[@]}" staged/
+          ls -l staged
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nightly-${{ matrix.os }}
+          retention-days: 14
+          if-no-files-found: error
+          path: staged/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: nightly-*
+          path: artifacts
+      - name: Collect stable asset names
+        run: node scripts/collect-nightly-assets.js artifacts dist-nightly
+      - name: Publish Nightly pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          notes="$(mktemp)"
+          {
+            echo "Nightly"
+            echo
+            echo "Commit: https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
+            echo "Build: ${GITHUB_SHA::7}"
+            echo
+            echo "Pre-release of main. This build installs beside the stable app as OrbitPS2Manager Nightly."
+            echo
+            echo "Unsigned build. Windows SmartScreen may warn. On macOS, clear quarantine:"
+            echo 'xattr -dr com.apple.quarantine "/Applications/OrbitPS2Manager Nightly.app"'
+            echo
+            echo "The in-app update check still follows stable releases from Luden02/OrbitPS2-Manager."
+          } > "$notes"
+
+          if gh release view nightly --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload nightly dist-nightly/* --repo "$GITHUB_REPOSITORY" --clobber
+            git tag -f nightly "$GITHUB_SHA"
+            git push --force origin "refs/tags/nightly"
+            gh release edit nightly \
+              --repo "$GITHUB_REPOSITORY" \
+              --prerelease \
+              --latest=false \
+              --title "Nightly" \
+              --target "$GITHUB_SHA" \
+              --notes-file "$notes"
+          else
+            git tag -f nightly "$GITHUB_SHA"
+            git push origin "refs/tags/nightly"
+            gh release create nightly \
+              --repo "$GITHUB_REPOSITORY" \
+              --prerelease \
+              --latest=false \
+              --title "Nightly" \
+              --target "$GITHUB_SHA" \
+              --notes-file "$notes" \
+              dist-nightly/*
+          fi

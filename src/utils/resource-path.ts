@@ -1,13 +1,17 @@
-import { app } from "electron";
+import * as electron from "electron";
 import path from "path";
 
 /**
  * Path to the bundled "assets" directory, both in dev (project root) and
- * packaged builds (inside app.asar, next to package.json). __dirname-relative
- * lookups break whenever a module moves to a different folder depth under
- * src/, so this is the source of truth — candidate lists that also try
- * __dirname-relative paths are just a safety net for unusual layouts.
+ * packaged builds (inside app.asar, next to package.json). Plain Node tooling
+ * and tests do not expose Electron's `app` object, so they resolve assets from
+ * the repository working directory instead.
  */
 export function getAssetsDir(): string {
-  return path.join(app.getAppPath(), "assets");
+  const electronApp = (electron as any).app;
+  const appPath =
+    electronApp && typeof electronApp.getAppPath === "function"
+      ? electronApp.getAppPath()
+      : process.cwd();
+  return path.join(appPath, "assets");
 }

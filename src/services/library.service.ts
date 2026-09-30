@@ -4,6 +4,8 @@ import * as fs from "fs/promises";
 import path from "path";
 import { createLogger, formatBytes } from "../logger";
 import { isDirectoryEntry } from "../utils/fs-entry";
+import { parseArtworkBaseName } from "../utils/artwork-name";
+import { tryDeterminePs1GameIdFromHex } from "./game-id-resolver.service";
 
 const log = createLogger("library");
 
@@ -141,6 +143,85 @@ export async function getGamesFiles(dirPath: string) {
   }
 }
 
+async function directorySize(dirPath: string): Promise<number> {
+  let total = 0;
+  const entries = await fs.readdir(dirPath, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    const fullPath = path.join(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      total += await directorySize(fullPath);
+    } else if (entry.isFile()) {
+      total += (await fs.stat(fullPath).catch(() => null))?.size ?? 0;
+    }
+  }
+  return total;
+}
+
+/**
+ * Scan an Ember installation using RiptOPL's per-game layout:
+ *   EMBER/games/<game folder>/*.cue + referenced BIN track(s)
+ *
+ * The folder name is storage identity only. Disc identity comes from the CUE's
+ * first MODE1/MODE2 data track, which is resolved by tryDeterminePs1GameIdFromHex.
+ * A user-selected path may point at either EMBER/ or EMBER/games/.
+ */
+export async function getEmberGames(emberPath: string) {
+  try {
+    const selected = path.resolve(emberPath);
+    const gamesDir =
+      path.basename(selected).toLowerCase() === "games"
+        ? selected
+        : path.join(selected, "games");
+
+    const gameEntries = await fs.readdir(gamesDir, { withFileTypes: true });
+    const games: Array<{
+      folderName: string;
+      path: string;
+      cuePath: string;
+      gameId?: string;
+      gameName?: string;
+      sizeBytes: number;
+      message?: string;
+    }> = [];
+
+    for (const entry of gameEntries) {
+      if (entry.name.startsWith(".") || !entry.isDirectory()) continue;
+
+      const gameFolder = path.join(gamesDir, entry.name);
+      const files = await fs.readdir(gameFolder, { withFileTypes: true }).catch(() => []);
+      const cue = files.find(
+        (file) => file.isFile() && file.name.toLowerCase().endsWith(".cue")
+      );
+      if (!cue) {
+        log.verbose(`EMBER: skipping ${entry.name} (no CUE in game folder)`);
+        continue;
+      }
+
+      const cuePath = path.join(gameFolder, cue.name);
+      const resolved = await tryDeterminePs1GameIdFromHex(cuePath);
+      games.push({
+        folderName: entry.name,
+        path: gameFolder,
+        cuePath,
+        gameId: resolved?.success ? resolved.gameId : undefined,
+        gameName: resolved?.success ? resolved.gameName : undefined,
+        sizeBytes: await directorySize(gameFolder),
+        ...(!resolved?.success ? { message: resolved?.message || "Could not identify PS1 disc." } : {}),
+      });
+    }
+
+    log.info(`Found ${games.length} Ember game folder(s) under ${gamesDir}`);
+    return { success: true, gamesDir, games };
+  } catch (err) {
+    log.verbose(`No Ember library loaded from ${emberPath}: ${(err as Error)?.message || err}`);
+    return {
+      success: false,
+      games: [],
+      message: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
 export async function getULGames(dirPath: string) {
   try {
     const ulCfgPath = path.join(dirPath, "ul.cfg");
@@ -270,11 +351,12 @@ export async function getArtFolder(dirpath: string) {
               return null;
             }
             const baseName = path.parse(item.name).name;
-            const lastUnderscoreIdx = baseName.lastIndexOf("_");
-            const type = lastUnderscoreIdx >= 0 ? baseName.slice(lastUnderscoreIdx + 1) : "";
-            const nameBeforeType = lastUnderscoreIdx >= 0 ? baseName.slice(0, lastUnderscoreIdx) : baseName;
-            const idMatch = nameBeforeType.match(/([A-Z]{4}_\d{3}\.\d{2})/i);
-            const gameId = idMatch ? idMatch[1] : nameBeforeType;
+            const parsed = parseArtworkBaseName(baseName);
+            const type = parsed?.type ?? "";
+            // This field is the full artwork identity stem, not necessarily a
+            // disc ID. That distinction is required for RiptOPL Apps, whose
+            // identity is the complete ELF filename (including .ELF).
+            const gameId = parsed?.identity ?? baseName;
             return {
               name: baseName,
               extension: path.extname(item.name),

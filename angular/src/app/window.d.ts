@@ -27,6 +27,22 @@ declare interface Window {
     /** List artwork files in the ART folder. */
     getArtFolder: (dirPath: string) => Promise<any>;
 
+    /** Scan EMBER/games/<folder>/ and identify each game from its CUE/BIN data track. */
+    getEmberGames: (emberPath: string) => Promise<{
+      success: boolean;
+      gamesDir?: string;
+      games: Array<{
+        folderName: string;
+        path: string;
+        cuePath: string;
+        gameId?: string;
+        gameName?: string;
+        sizeBytes: number;
+        message?: string;
+      }>;
+      message?: string;
+    }>;
+
     /** Rename a game file and optionally update its CFG. */
     renameGamefile: (
       dirPath: string,
@@ -59,6 +75,21 @@ declare interface Window {
       newCfgContent?: string;
       newTitle: string;
     }) => Promise<{ success: boolean; message?: string }>;
+
+    /** Normalize a RiptOPL VCD filename or Ember game-folder identity. */
+    normalizeRiptOplPs1Storage: (params: {
+      kind: 'VCD' | 'EMBER';
+      sourcePath: string;
+      gameId: string;
+      canonicalTitle: string;
+      artDir: string;
+    }) => Promise<{
+      success: boolean;
+      changed?: boolean;
+      newPath?: string;
+      localName?: string;
+      message?: string;
+    }>;
 
     /** Listen for PS1 rename progress events. */
     onRenamePs1Progress: (
@@ -119,13 +150,22 @@ declare interface Window {
     /** Remove all PS1 delete progress listeners. */
     removeAllDeletePs1ProgressListeners: () => void;
 
-    /** Download cover/background art for a game by its ID. */
+    /**
+     * Download cover/background art for a game by its ID.
+     *
+     * `saveAsByType` overrides only the local file name (the wizard fetches
+     * `SCR_05` but stores it as `SCR`). `wideSlotFallback` also accepts the
+     * remaining indexed variants of a family, so a bulk run fills `SCR`/`SCR2`/
+     * `BG` even when the database holds only e.g. `SCR_05`.
+     */
     downloadArtByGameId: (
       dirPath: string,
       gameId: string,
       system?: 'PS1' | 'PS2',
       saveAsName?: string,
       artTypes?: string[],
+      saveAsByType?: Record<string, string>,
+      wideSlotFallback?: boolean,
     ) => Promise<any>;
 
     /** Check which of the given filenames exist in the art directory. */
@@ -507,6 +547,8 @@ declare interface AppSettings {
   autoReconnect: boolean;
   /** Last-picked PS1 launcher style on the Import screen. */
   ps1LauncherMode?: 'popstarter' | 'popsloader';
+  /** Optional Ember root/games folder overrides keyed by mounted OPL root. */
+  emberDirectories?: Record<string, string>;
   /** UI color theme. "system" follows the OS light/dark preference (OrbitPS2 only). */
   theme: 'orbitps2' | 'orbitps2-light' | 'legacy' | 'system';
 }

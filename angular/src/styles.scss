@@ -329,11 +329,10 @@ app-root {
   }
 }
 
+/* `backwards`, not `both`: `both` keeps the final keyframe's `transform`, which
+   turns the wrapper into the containing block for `position: fixed` children
+   (the single-game artwork wizard is rendered inside the library page's
+   `.fade-in`). The bulk dialog host sits outside this wrapper. */
 .fade-in {
-  // fill-mode intentionally omits "forwards": the "to" keyframe (opacity 1,
-  // translateY(0)) is identical to the element's un-animated resting state,
-  // and persisting it would leave `transform` set on the element forever —
-  // which makes it a CSS containing block for any `position: fixed`
-  // descendant (e.g. our modal dialogs), breaking their viewport centering.
-  animation: orbit-fade-in 0.25s ease;
+  animation: orbit-fade-in 0.25s ease backwards;
 }

@@ -1,4 +1,4 @@
-export type GameFormat = 'ISO' | 'ZSO' | 'VCD' | 'UL' | 'POPS' | 'APP';
+export type GameFormat = 'ISO' | 'ZSO' | 'VCD' | 'UL' | 'POPS' | 'EMBER' | 'APP';
 
 export type Ps1LauncherInfo = {
   folder: string;
@@ -31,6 +31,12 @@ export type Game = {
   ps1VmcSub?: string;
   /** Marks this APPS entry as a PS1 POPStarter launcher (OPL 1.2+). */
   isPs1Launcher?: boolean;
+  /** Canonical PS1 title resolved from disc identity, independent of user naming. */
+  canonicalTitle?: string;
+  /** Ember only: game-folder name used by RiptOPL as the artwork/config identity. */
+  emberFolder?: string;
+  /** Ember only: CUE file used to locate the game's BIN data track. */
+  emberCuePath?: string;
 };
 
 export type RawGameFile = {

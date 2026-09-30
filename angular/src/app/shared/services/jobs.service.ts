@@ -4,6 +4,15 @@ import { LogsService } from './logs.service';
 import { LibraryService } from './library.service';
 import { ConfirmDialogService } from './confirm-dialog.service';
 
+/** A single line of progress shown in a job's live log. */
+export type JobLogType = 'info' | 'step' | 'success' | 'error';
+export interface JobLogEntry {
+  id: number;
+  time: string;
+  text: string;
+  type: JobLogType;
+}
+
 export type ImportJobType =
   | 'ps2-dvd'
   | 'ps2-cd'
@@ -42,10 +51,13 @@ export interface ImportJob {
   launcherMode?: 'popstarter' | 'popsloader';
   /** Artwork only: which art database to pull from (defaults to PS2). */
   system?: 'PS1' | 'PS2';
-  /** Artwork only: which art types to fetch (defaults to COV/ICO/SCR). */
-  artTypes?: string[];
-  /** Artwork only: silently drop already-saved types instead of prompting to overwrite. */
-  skipExisting?: boolean;
+  /**
+   * Artwork only: per-type override of the saved file's base name. The URL is
+   * still fetched from the code (`BG_00`), but the file is written as
+   * `<localName>_<base>.png`, e.g. `BG_00` → `BG`, so OPL reads it as
+   * `<gameID>_BG.png`.
+   */
+  artSaveAsOverrides?: Record<string, string>;
   /**
    * ZSO/zso-to-iso/vcd-to-bin only: remove the source file once the
    * conversion succeeds.
@@ -64,27 +76,42 @@ export interface ImportJob {
    * matching logic in updateArtForGame.
    */
   saveAsName?: string;
+  /**
+   * Artwork only, RiptOPL PS1: the storage identity that must be normalized to
+   * `canonicalName` before the art files are written. RiptOPL resolves PS1 art
+   * by the on-disk VCD/Ember name, so art has to land under the final name.
+   */
+  normalizeKind?: 'VCD' | 'EMBER';
+  /** Artwork only: RiptOPL-safe PS1 storage name to normalize to before download. */
+  canonicalName?: string;
+  /**
+   * Artwork only: whether to overwrite existing art files. When `false` only
+   * the missing files are fetched. When `undefined` (single-game fetch) a
+   * confirmation dialog is shown before touching existing files.
+   */
+  overwrite?: boolean;
+  /** Artwork only: which art types to fetch (defaults to COV, ICO, SCR). */
+  artTypes?: string[];
+  /**
+   * Artwork only: also accept the remaining indexed variants of a family when
+   * the requested slot's own candidates are missing (used by the bulk dialog).
+   * A game whose database only holds e.g. `SCR_05` still gets its `SCR` slot
+   * filled, and the file is saved under the canonical OPL name.
+   */
+  wideSlotFallback?: boolean;
   status: JobStatus;
   percent: number;
   stage: string;
   message?: string;
   createdAt: number;
   finishedAt?: number;
-  /** Shared by every job created from the same `enqueue()` call — lets the
-   *  artwork-overwrite prompt's "don't ask again" apply to the rest of the batch. */
-  batchId: string;
+  /** Live per-job progress lines (drives the artwork bulk-dialog log). */
+  logs?: JobLogEntry[];
 }
 
 export type NewImportJob = Omit<
   ImportJob,
-  | 'id'
-  | 'status'
-  | 'percent'
-  | 'stage'
-  | 'message'
-  | 'createdAt'
-  | 'finishedAt'
-  | 'batchId'
+  'id' | 'status' | 'percent' | 'stage' | 'message' | 'createdAt' | 'finishedAt'
 >;
 
 /**
@@ -113,26 +140,23 @@ export class JobsService {
 
   private isProcessing = false;
 
-  /**
-   * Per-batch "don't ask again" decision for the artwork-overwrite prompt —
-   * set once a user checks the toggle, consumed by the rest of that batch's
-   * artwork jobs, then dropped once the batch has nothing left queued/running.
-   */
-  private readonly batchOverwriteDecisions = new Map<string, boolean>();
+  /** Game ids of successful artwork jobs awaiting a single batched refresh.
+   *  The bulk flow queues one job per game; instead of re-reading the whole
+   *  ART folder for every finished game, the ids are accumulated here and
+   *  flushed once the whole queue drains. */
+  private pendingArtRefresh = new Set<string>();
 
   constructor(
     private readonly _logger: LogsService,
     private readonly _library: LibraryService,
     private readonly _confirm: ConfirmDialogService,
-  ) {}
+  ) { }
 
-  /** Queue one or more imports (as a single batch) and kick the worker if idle. */
-  public enqueue(jobs: NewImportJob[]): void {
-    const batchId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  /** Queue one or more imports and kick the worker if idle. */
+  public enqueue(jobs: NewImportJob[]): ImportJob[] {
     const created: ImportJob[] = jobs.map((job) => ({
       ...job,
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      batchId,
       status: 'queued',
       percent: 0,
       stage: 'Queued',
@@ -141,6 +165,7 @@ export class JobsService {
     this.jobsSubject.next([...this.jobsSubject.value, ...created]);
     this._logger.log('jobsService', `Queued ${created.length} import job(s)`);
     void this.processNext();
+    return created;
   }
 
   /** Remove finished (success/error) jobs from the list. */
@@ -167,12 +192,37 @@ export class JobsService {
     );
   }
 
+  /** Append a live progress line to a job's log. */
+  private logJob(id: string, text: string, type: JobLogType = 'info'): void {
+    const now = new Date();
+    this.jobsSubject.next(
+      this.jobsSubject.value.map((j) =>
+        j.id === id
+          ? {
+            ...j,
+            logs: [
+              ...(j.logs ?? []),
+              {
+                id: j.logs?.length ?? 0,
+                time: now.toLocaleTimeString('en-US', { hour12: false }),
+                text,
+                type,
+              },
+            ],
+          }
+          : j,
+      ),
+    );
+  }
+
   private async processNext(): Promise<void> {
     if (this.isProcessing) {
       return;
     }
     const next = this.jobsSubject.value.find((j) => j.status === 'queued');
     if (!next) {
+      // Queue drained — flush any deferred artwork refresh in a single scan.
+      this.flushPendingArtRefresh();
       return;
     }
 
@@ -202,12 +252,15 @@ export class JobsService {
           finishedAt: Date.now(),
         });
         this._logger.log('jobsService', `Job succeeded: ${next.label}`);
-        // Artwork only touches one game's images — patch it in place so the
-        // library scroll position is preserved. Everything else changes the
-        // file set on disk and needs a full re-scan.
+        // Artwork only touches one game's images — defer the refresh until the
+        // queue drains so the whole `/ART` folder is scanned once per run
+        // (bulk flows queue one job per game and would re-read it every time).
+        // Everything else changes the file set on disk and needs a full
+        // re-scan, which supersedes any pending artwork refresh.
         if (next.type === 'artwork' && result?.artRefresh !== false) {
-          void this._library.updateArtForGame(next.gameId);
+          this.pendingArtRefresh.add(next.gameId);
         } else {
+          this.pendingArtRefresh.clear();
           this._library.refreshGamesFiles();
         }
       } else {
@@ -234,24 +287,26 @@ export class JobsService {
         `Job threw for ${next.label} (${next.type}): ${error?.message || error}`,
       );
     } finally {
-      const stillPending = this.jobsSubject.value.some(
-        (j) =>
-          j.batchId === next.batchId &&
-          (j.status === 'queued' || j.status === 'running'),
-      );
-      if (!stillPending) {
-        this.batchOverwriteDecisions.delete(next.batchId);
-      }
-
       this.isProcessing = false;
       // Process the rest of the queue on the next tick.
       setTimeout(() => void this.processNext(), 0);
     }
   }
 
-  private async runJob(
-    job: ImportJob,
-  ): Promise<{
+  /** Batch-refresh artwork for all games finished since the last flush, with a
+   *  single `/ART` folder scan instead of one per game. */
+  private flushPendingArtRefresh(): void {
+    if (this.pendingArtRefresh.size === 0) return;
+    const gameIds = [...this.pendingArtRefresh];
+    this.pendingArtRefresh.clear();
+    if (gameIds.length === 1) {
+      void this._library.updateArtForGame(gameIds[0]);
+    } else {
+      void this._library.updateArtForGames(gameIds);
+    }
+  }
+
+  private async runJob(job: ImportJob): Promise<{
     success: boolean;
     message?: string;
     artRefresh?: boolean;
@@ -295,141 +350,191 @@ export class JobsService {
   }
 
   private async runArtworkJob(job: ImportJob, dirPath: string) {
-    this.patchJob(job.id, { stage: 'Checking existing artwork…', percent: 10 });
-
     const artDir = `${dirPath}/ART`;
-    const saveAsName = job.saveAsName;
-    const localName = saveAsName || job.gameId;
-    const types = job.artTypes?.length ? job.artTypes : ['COV', 'ICO', 'SCR'];
-    const expectedFiles = types.map((t) => `${localName}_${t}.png`);
+    let saveAsName = job.saveAsName;
+    let normalizedStorage = false;
 
-    this._logger.log(
-      'jobsService',
-      `FetchArtwork for "${job.label}": gameId=${job.gameId}, saveAsName=${saveAsName ?? '(none)'}, localName=${localName}, expectedFiles=[${expectedFiles.join(', ')}]`,
+    if (job.normalizeKind && job.canonicalName) {
+      this.logJob(
+        job.id,
+        `Normalizing RiptOPL ${job.normalizeKind} identity to "${job.canonicalName}"…`,
+        'step',
+      );
+      const normalized = await window.libraryAPI.normalizeRiptOplPs1Storage({
+        kind: job.normalizeKind,
+        sourcePath: job.filePath,
+        gameId: job.gameId,
+        canonicalTitle: job.canonicalName,
+        artDir,
+      });
+      if (!normalized?.success) {
+        return {
+          success: false,
+          artRefresh: normalizedStorage ? false : undefined,
+          message: normalized?.message || 'Failed to normalize RiptOPL PS1 storage identity.',
+        };
+      }
+      normalizedStorage = !!normalized.changed;
+      saveAsName = normalized.localName || saveAsName;
+      if (normalized.changed) {
+        this.logJob(job.id, `Storage identity renamed to "${saveAsName}"`, 'success');
+      }
+    }
+
+    const localName = saveAsName || job.gameId;
+    const artSaveOverrides = job.artSaveAsOverrides ?? {};
+    const types = job.artTypes?.length ? job.artTypes : ['COV', 'ICO', 'SCR'];
+    const artTargets = types.map((type) => ({
+      type,
+      file: `${localName}_${artSaveOverrides[type] ?? type}.png`,
+    }));
+
+    this.logJob(
+      job.id,
+      `Checking existing artwork for "${job.label}"…`,
+      'step',
     );
+    this.patchJob(job.id, { stage: 'Checking existing artwork…', percent: 10 });
 
     const existing = await window.libraryAPI.checkArtFilesExist(
       artDir,
-      expectedFiles,
+      artTargets.map((t) => t.file),
     );
 
-    this._logger.log(
-      'jobsService',
-      `checkArtFilesExist returned ${existing.length} existing file(s) for "${job.label}": [${existing.join(', ')}]`,
-    );
+    // Single-game fetch (no policy set by the caller): confirm before touching
+    // existing files. Bulk flows pass an explicit overwrite policy instead, so
+    // no per-game dialog is shown.
+    let isOverwrite = job.overwrite === true;
 
-    let shouldDownload = true;
-    let isOverwrite = false;
-    let downloadTypes = types;
+    if (existing.length > 0 && job.overwrite === undefined) {
+      this.logJob(
+        job.id,
+        `Artwork already exists (${existing.join(', ')}) — requesting overwrite confirmation`,
+        'info',
+      );
+      const confirmed = await this._confirm.confirm({
+        title: 'Overwrite Artwork',
+        message: `Artwork already exists for "${job.label}". Overwrite?`,
+        detail: existing.join('\n'),
+        confirmLabel: 'Overwrite',
+      });
+      if (!confirmed) {
+        this.logJob(job.id, 'Skipped — existing files left untouched', 'info');
+        return {
+          success: false,
+          cancelled: true,
+          // Storage may already have been renamed above; the library must
+          // re-scan or it keeps pointing at the old VCD/folder path.
+          artRefresh: normalizedStorage ? false : undefined,
+          message: 'Cancelled by user.',
+        };
+      }
+      isOverwrite = true;
+    }
 
-    if (existing.length > 0) {
-      if (job.skipExisting) {
-        const alreadySaved = types.filter((t) =>
-          existing.includes(`${localName}_${t}.png`),
-        );
-        downloadTypes = types.filter((t) => !alreadySaved.includes(t));
-        this._logger.log(
-          'jobsService',
-          `Skipping ${alreadySaved.length} already-saved type(s) for "${job.label}": [${alreadySaved.join(', ')}]`,
-        );
+    // With a "missing only" policy, download just the files that are absent.
+    const toDownload = isOverwrite
+      ? artTargets
+      : artTargets.filter((t) => !existing.includes(t.file));
 
-        if (downloadTypes.length === 0) {
-          this._logger.log(
-            'jobsService',
-            `All selected artwork already exists for "${job.label}" — nothing to download.`,
-          );
-          return {
-            success: true,
-            message: 'Artwork already up to date — nothing to download.',
-            artRefresh: false,
-          };
-        }
-      } else {
-        const remembered = this.batchOverwriteDecisions.get(job.batchId);
-        let confirmed: boolean;
-
-        if (remembered !== undefined) {
-          confirmed = remembered;
-          this._logger.log(
-            'jobsService',
-            `Reusing batch overwrite decision for "${job.label}": confirmed=${confirmed}`,
-          );
-        } else {
-          const result = await this._confirm.confirmWithCheckbox({
-            title: 'Overwrite Artwork',
-            message: `Artwork already exists for "${job.label}". Overwrite?`,
-            detail: existing.join('\n'),
-            confirmLabel: 'Overwrite',
-            toggleLabel: "Don't ask again for this batch",
-          });
-          confirmed = result.confirmed;
-          if (result.checked) {
-            this.batchOverwriteDecisions.set(job.batchId, confirmed);
-          }
-          this._logger.log(
-            'jobsService',
-            `Confirm dialog result for "${job.label}": confirmed=${confirmed}, rememberedForBatch=${result.checked}`,
-          );
-        }
-
-        if (confirmed) {
-          isOverwrite = true;
-        } else {
-          shouldDownload = false;
+    if (!isOverwrite) {
+      for (const t of artTargets) {
+        if (existing.includes(t.file)) {
+          this.logJob(job.id, `${t.type} already exists — skipped`, 'info');
         }
       }
     }
 
-    if (!shouldDownload) {
-      this._logger.log(
-        'jobsService',
-        `Artwork download cancelled by user for "${job.label}" — existing files left untouched`,
-      );
-      return { success: false, cancelled: true, message: 'Cancelled by user.' };
+    if (toDownload.length === 0) {
+      this.logJob(job.id, 'Already up to date', 'success');
+      return {
+        success: true,
+        message: 'Artwork already up to date.',
+        artRefresh: normalizedStorage ? false : undefined,
+      };
     }
 
+    this.logJob(
+      job.id,
+      `Downloading ${toDownload.map((t) => t.type).join(', ')}…`,
+      'step',
+    );
     this.patchJob(job.id, { stage: 'Downloading artwork…', percent: 50 });
 
+    const typeCodes = toDownload.map((t) => t.type);
     const result = await window.libraryAPI.downloadArtByGameId(
       artDir,
       job.gameId,
       job.system ?? 'PS2',
       saveAsName,
-      downloadTypes,
+      typeCodes,
+      artSaveOverrides,
+      job.wideSlotFallback,
     );
+
+    // Per-type outcome. `runJob` must report `success` whenever anything was
+    // written — that is what queues the game for `pendingArtRefresh` — but a
+    // run where two of three types 404'd is not a clean download, and the
+    // dialogs tally job status, so the shortfall has to be stated here.
+    let savedCount = 0;
+    const failedTypes: string[] = [];
 
     if (result?.data) {
       const saved = result.data.filter((r: any) => r.savedPath);
       const failed = result.data.filter((r: any) => r.error);
-      this._logger.log(
-        'jobsService',
-        `Artwork download complete for "${job.label}": ${saved.length} saved, ${failed.length} failed`,
-      );
-      if (saveAsName && saveAsName !== job.gameId) {
-        this._logger.log(
-          'jobsService',
-          `Artwork saved with name pattern "${saveAsName}_*.png" (gameId: ${job.gameId})`,
+      savedCount = saved.length;
+      for (const item of saved) {
+        this.logJob(
+          job.id,
+          `${item.type}${item.source ? ` (from ${item.source})` : ''} saved → ${item.savedPath}`,
+          'success',
         );
       }
-      for (const item of saved) {
-        this._logger.log('jobsService', `  ✓ ${item.type}: ${item.savedPath}`);
-      }
       for (const item of failed) {
-        this._logger.log('jobsService', `  ✗ ${item.type}: ${item.error}`);
+        failedTypes.push(item.type);
+        const notFound = /404/.test(item.error ?? '');
+        this.logJob(
+          job.id,
+          `${item.type}: ${notFound ? 'not found in the database' : item.error}`,
+          'error',
+        );
       }
 
       if (saved.length === 0) {
+        this.logJob(job.id, 'No artwork found in the database', 'error');
         return {
           success: false,
+          artRefresh: normalizedStorage ? false : undefined,
           message: `No artwork found for ${job.label} (${job.gameId}) in the ${job.system ?? 'PS2'} database.`,
         };
       }
     }
 
-    const message = isOverwrite
-      ? 'Artwork overwritten.'
-      : 'Artwork downloaded.';
-    return { success: true, message };
+    const verb = isOverwrite ? 'overwritten' : 'downloaded';
+
+    if (failedTypes.length > 0) {
+      // Still a success — the files that were written have to be picked up by
+      // `pendingArtRefresh` — but "Artwork downloaded." on its own would report
+      // a partial run as a clean one.
+      const total = toDownload.length;
+      const message =
+        `Artwork partially ${verb} — ${savedCount} of ${total} asset${total === 1 ? '' : 's'} ` +
+        `written; missing: ${failedTypes.join(', ')}.`;
+      this.logJob(job.id, message, 'error');
+      return {
+        success: true,
+        message,
+        artRefresh: normalizedStorage ? false : undefined,
+      };
+    }
+
+    const message = `Artwork ${verb}.`;
+    this.logJob(job.id, message, 'success');
+    return {
+      success: true,
+      message,
+      artRefresh: normalizedStorage ? false : undefined,
+    };
   }
 
   private async runRenameJob(job: ImportJob) {

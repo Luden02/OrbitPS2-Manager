@@ -15,8 +15,184 @@ import { findPs1GameName, findPs2GameName } from "../utils/games-list";
 import { parseCueSheet, getCueDirectory } from "../utils/cue-parser";
 import { streamZsoContents } from "./zso.service";
 import { extractDiscZip, cleanupExtractedZip } from "../utils/zip-extract";
+import { lookupPs1GameIdByPvdTimestamp } from "../utils/ps1-pvd-game-id";
 
 const log = createLogger("game-id");
+
+export interface Ps1GameIdResult {
+  success: boolean;
+  gameId?: string;
+  formattedGameId?: string;
+  gameName?: string;
+  message?: string;
+}
+
+function readLe32(buffer: Buffer, offset: number): number {
+  return (
+    buffer[offset] |
+    (buffer[offset + 1] << 8) |
+    (buffer[offset + 2] << 16) |
+    (buffer[offset + 3] << 24)
+  ) >>> 0;
+}
+
+const ISO_BLOCK_SIZE = 2048;
+
+/**
+ * Sector layouts a PS1 image can use. `dataOffset` is where the 2048 bytes of
+ * user data start inside each physical sector:
+ * - plain ISO: 2048-byte sectors, no framing;
+ * - MODE1/2352: 12-byte sync + 4-byte header;
+ * - MODE2/2352 (CD-XA Form 1 — every pressed PS1 disc and POPS VCD payload):
+ *   12-byte sync + 4-byte header + 8-byte subheader.
+ */
+const SECTOR_LAYOUTS = [
+  { sectorSize: 2048, dataOffset: 0 },
+  { sectorSize: 2352, dataOffset: 24 },
+  { sectorSize: 2352, dataOffset: 16 },
+];
+
+/**
+ * Read `length` bytes of logical (user) data starting at logical block `lba`,
+ * skipping per-sector framing so multi-sector reads stay contiguous.
+ */
+async function readUserData(
+  fileHandle: fs.FileHandle,
+  baseOffset: number,
+  layout: { sectorSize: number; dataOffset: number },
+  lba: number,
+  length: number
+): Promise<Buffer | null> {
+  const out = Buffer.alloc(length);
+  let written = 0;
+  let block = lba;
+
+  while (written < length) {
+    const chunk = Math.min(ISO_BLOCK_SIZE, length - written);
+    const position = baseOffset + block * layout.sectorSize + layout.dataOffset;
+    const { bytesRead } = await fileHandle.read(out, written, chunk, position);
+    if (bytesRead !== chunk) return null;
+    written += chunk;
+    block++;
+  }
+
+  return out;
+}
+
+/**
+ * RetroGem-compatible primary PS1 identity path: locate the ISO9660 PVD,
+ * traverse the root directory for SYSTEM.CNF, then read the BOOT target.
+ *
+ * Supports 2048-byte ISO sectors and raw 2352-byte MODE1/MODE2 BIN sectors.
+ * The base offset lets the same parser operate on POPS VCD payloads after the
+ * 1 MiB header.
+ */
+async function tryReadPs1IdFromSystemCnf(
+  fileHandle: fs.FileHandle,
+  baseOffset = 0
+): Promise<string | null> {
+  for (const layout of SECTOR_LAYOUTS) {
+    const pvd = await readUserData(fileHandle, baseOffset, layout, 16, ISO_BLOCK_SIZE);
+    if (
+      !pvd ||
+      pvd[0] !== 0x01 ||
+      pvd.subarray(1, 6).toString("ascii") !== "CD001"
+    ) {
+      continue;
+    }
+
+    const rootLba = readLe32(pvd, 158);
+    const rootLen = readLe32(pvd, 166);
+    if (rootLen <= 0 || rootLen > 32768) continue;
+
+    const dirBuf = await readUserData(fileHandle, baseOffset, layout, rootLba, rootLen);
+    if (!dirBuf) continue;
+
+    let off = 0;
+    while (off < rootLen) {
+      const recLen = dirBuf[off];
+      if (recLen === 0) {
+        // Directory records never straddle a logical block; zero padding means
+        // "continue at the next 2048-byte block".
+        off = (Math.floor(off / ISO_BLOCK_SIZE) + 1) * ISO_BLOCK_SIZE;
+        continue;
+      }
+      if (off + recLen > rootLen || off + 33 > rootLen) break;
+
+      const nameLen = dirBuf[off + 32];
+      if (nameLen > 0 && off + 33 + nameLen <= rootLen) {
+        const name = dirBuf
+          .subarray(off + 33, off + 33 + nameLen)
+          .toString("ascii")
+          .toUpperCase();
+
+        if (name.startsWith("SYSTEM.CNF")) {
+          const sysLba = readLe32(dirBuf, off + 2);
+          const sysSize = readLe32(dirBuf, off + 10);
+          if (sysSize > 0 && sysSize < 4096) {
+            const sysBuf = await readUserData(
+              fileHandle,
+              baseOffset,
+              layout,
+              sysLba,
+              sysSize
+            );
+            if (sysBuf) {
+              const text = sysBuf.toString("latin1");
+              PS1_GAME_ID_REGEX.lastIndex = 0;
+              const match = text.match(PS1_GAME_ID_REGEX)?.[0];
+              if (match) return match.replace("-", "_").replace(/;1$/i, "");
+            }
+          }
+        }
+      }
+      off += recLen;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Generic-boot PS1 identity fallback used by pcm720/OSDMenu: when SYSTEM.CNF
+ * does not contain a serial-shaped executable name, use the ISO9660 Primary
+ * Volume Descriptor's 16-byte creation timestamp to resolve a known disc ID.
+ *
+ * This deliberately runs before the broad raw serial scan. A generic-boot disc
+ * can contain unrelated serial-looking strings elsewhere in its data, so the
+ * PVD timestamp is the authoritative fallback for entries in the verified
+ * timestamp table.
+ */
+async function tryReadPs1IdFromPvdTimestamp(
+  fileHandle: fs.FileHandle,
+  baseOffset = 0
+): Promise<string | null> {
+  for (const layout of SECTOR_LAYOUTS) {
+    const pvd = await readUserData(
+      fileHandle,
+      baseOffset,
+      layout,
+      16,
+      ISO_BLOCK_SIZE
+    );
+    if (
+      !pvd ||
+      pvd[0] !== 0x01 ||
+      pvd.subarray(1, 6).toString("ascii") !== "CD001"
+    ) {
+      continue;
+    }
+
+    // ISO9660 PVD volume creation date: byte offset 0x32D, 16 ASCII digits.
+    const timestamp = pvd.subarray(0x32d, 0x32d + 16).toString("ascii");
+    if (!/^\d{16}$/.test(timestamp)) continue;
+
+    const gameId = lookupPs1GameIdByPvdTimestamp(timestamp);
+    if (gameId) return gameId;
+  }
+
+  return null;
+}
 
 /**
  * Resolves the PS2 game ID for an ISO that doesn't carry the GAMEID prefix
@@ -74,15 +250,18 @@ export async function tryDetermineGameIdFromHex(filepath: string) {
   if (path.extname(filepath).toLowerCase() === ".cue") {
     try {
       const cueSheet = await parseCueSheet(filepath);
-      const firstFile = cueSheet.files[0]?.filename;
-      if (!firstFile) {
+      const dataFile =
+        cueSheet.files.find((file) =>
+          file.tracks.some((track) => /^MODE[12]\//i.test(track.type))
+        )?.filename || cueSheet.files[0]?.filename;
+      if (!dataFile) {
         return {
           success: false,
-          message: "CUE sheet does not reference any BIN files.",
+          message: "CUE sheet does not reference a readable data track.",
         };
       }
-      scanPath = path.join(getCueDirectory(filepath), firstFile);
-      log.verbose(`PS2 hex scan: resolved CUE to first BIN ${firstFile}`);
+      scanPath = path.join(getCueDirectory(filepath), dataFile);
+      log.verbose(`PS2 hex scan: resolved CUE data track to ${dataFile}`);
     } catch (err: any) {
       log.error(`PS2 hex scan: failed to parse CUE ${filepath}:`, err?.message || err);
       return {
@@ -257,6 +436,41 @@ export async function tryDeterminePs1GameIdFromVcd(
   }
 
   try {
+    const systemCnfId = await tryReadPs1IdFromSystemCnf(fileHandle, VCD_HEADER_SIZE);
+    if (systemCnfId) {
+      const lookupId = normaliseGameIdForLookup(systemCnfId);
+      const gameName = await findPs1GameName(lookupId);
+      log.verbose(
+        `PS1 VCD scan: SYSTEM.CNF resolved ${systemCnfId}` +
+          (gameName ? ` (${gameName})` : "")
+      );
+      return {
+        success: true,
+        gameId: systemCnfId,
+        formattedGameId: lookupId,
+        ...(gameName ? { gameName } : {}),
+      };
+    }
+
+    const pvdTimestampId = await tryReadPs1IdFromPvdTimestamp(
+      fileHandle,
+      VCD_HEADER_SIZE
+    );
+    if (pvdTimestampId) {
+      const lookupId = normaliseGameIdForLookup(pvdTimestampId);
+      const gameName = await findPs1GameName(lookupId);
+      log.verbose(
+        `PS1 VCD scan: PVD timestamp resolved ${pvdTimestampId}` +
+          (gameName ? ` (${gameName})` : "")
+      );
+      return {
+        success: true,
+        gameId: pvdTimestampId,
+        formattedGameId: lookupId,
+        ...(gameName ? { gameName } : {}),
+      };
+    }
+
     log.verbose(`PS1 VCD scan: reading ${path.basename(filepath)} from offset 1 MB (VCD header skip)`);
     const buffer = Buffer.alloc(FILE_SCAN_CHUNK_BYTES);
     let position = VCD_HEADER_SIZE;
@@ -328,7 +542,9 @@ export async function tryDeterminePs1GameIdFromVcd(
   }
 }
 
-export async function tryDeterminePs1GameIdFromHex(filepath: string) {
+export async function tryDeterminePs1GameIdFromHex(
+  filepath: string
+): Promise<Ps1GameIdResult> {
   let scanPath = filepath;
   let zipTempDir: string | null = null;
 
@@ -357,15 +573,18 @@ export async function tryDeterminePs1GameIdFromHex(filepath: string) {
     if (path.extname(scanPath).toLowerCase() === ".cue") {
       try {
         const cueSheet = await parseCueSheet(scanPath);
-        const firstFile = cueSheet.files[0]?.filename;
-        if (!firstFile) {
+        const dataFile =
+          cueSheet.files.find((file) =>
+            file.tracks.some((track) => /^MODE[12]\//i.test(track.type))
+          )?.filename || cueSheet.files[0]?.filename;
+        if (!dataFile) {
           return {
             success: false,
-            message: "CUE sheet does not reference any BIN files.",
+            message: "CUE sheet does not reference a readable PS1 data track.",
           };
         }
-        scanPath = path.join(getCueDirectory(scanPath), firstFile);
-        log.verbose(`PS1 hex scan: resolved CUE to first BIN ${firstFile}`);
+        scanPath = path.join(getCueDirectory(scanPath), dataFile);
+        log.verbose(`PS1 hex scan: resolved CUE data track to ${dataFile}`);
       } catch (err: any) {
         log.error(`PS1 hex scan: failed to parse CUE ${scanPath}:`, err?.message || err);
         return {
@@ -388,6 +607,38 @@ export async function tryDeterminePs1GameIdFromHex(filepath: string) {
     }
 
     try {
+      const systemCnfId = await tryReadPs1IdFromSystemCnf(fileHandle);
+      if (systemCnfId) {
+        const lookupId = normaliseGameIdForLookup(systemCnfId);
+        const gameName = await findPs1GameName(lookupId);
+        log.verbose(
+          `PS1 hex scan: SYSTEM.CNF resolved ${systemCnfId}` +
+            (gameName ? ` (${gameName})` : "")
+        );
+        return {
+          success: true,
+          gameId: systemCnfId,
+          formattedGameId: lookupId,
+          ...(gameName ? { gameName } : {}),
+        };
+      }
+
+      const pvdTimestampId = await tryReadPs1IdFromPvdTimestamp(fileHandle);
+      if (pvdTimestampId) {
+        const lookupId = normaliseGameIdForLookup(pvdTimestampId);
+        const gameName = await findPs1GameName(lookupId);
+        log.verbose(
+          `PS1 hex scan: PVD timestamp resolved ${pvdTimestampId}` +
+            (gameName ? ` (${gameName})` : "")
+        );
+        return {
+          success: true,
+          gameId: pvdTimestampId,
+          formattedGameId: lookupId,
+          ...(gameName ? { gameName } : {}),
+        };
+      }
+
       log.verbose(`PS1 hex scan: reading ${path.basename(scanPath)} in ${FILE_SCAN_CHUNK_BYTES / 1024}KB chunks`);
       const buffer = Buffer.alloc(FILE_SCAN_CHUNK_BYTES);
       let position = 0;

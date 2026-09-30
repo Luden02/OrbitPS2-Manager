@@ -5,10 +5,7 @@ import {
   GamecardViewMode,
 } from './components/gamecard/gamecard.component';
 import { LibraryRenameDialogComponent } from './components/rename-dialog/rename-dialog.component';
-import {
-  ArtworkBulkDialogComponent,
-  ArtworkBulkConfirmEvent,
-} from './components/artwork-bulk-dialog/artwork-bulk-dialog.component';
+import { ArtworkBulkDialogComponent } from './components/artwork-bulk-dialog/artwork-bulk-dialog.component';
 import { LibraryService } from '../../shared/services/library.service';
 import { JobsService } from '../../shared/services/jobs.service';
 import { AsyncPipe } from '@angular/common';
@@ -34,7 +31,6 @@ type SortMode = 'title-asc' | 'title-desc' | 'gameId-asc' | 'gameId-desc';
 export class LibraryComponent {
   public showRenameDialog = false;
   public showArtworkBulkDialog = false;
-  public artworkBulkTargets: Game[] = [];
 
   constructor(
     public readonly _libraryService: LibraryService,
@@ -56,38 +52,20 @@ export class LibraryComponent {
     this.showRenameDialog = true;
   }
 
-  /** Opens the bulk artwork wizard for every disc game in the library. */
-  downloadAllArt() {
-    const targets = this._libraryService.currentLibraryValue.filter(
-      (g) => g.system !== 'APPS' && g.gameId
-    );
-    if (targets.length === 0) {
-      window.alert('No games with a game ID to fetch artwork for.');
-      return;
-    }
-    this.artworkBulkTargets = targets;
+  openArtworkBulkDialog() {
     this.showArtworkBulkDialog = true;
   }
 
-  /** Queues an artwork-download job for each bulk-wizard target with the chosen types. */
-  onArtworkBulkConfirm({ artTypes, skipExisting }: ArtworkBulkConfirmEvent) {
-    this._jobs.enqueue(
-      this.artworkBulkTargets.map((g) => ({
-        type: 'artwork',
-        label: g.title || g.gameId || g.filename,
-        filePath: g.path,
-        gameId: g.gameId,
-        gameName: g.title || '',
-        downloadArtwork: false,
-        system: g.system === 'PS1' ? 'PS1' : 'PS2',
-        skipExisting,
-        artTypes,
-      }))
-    );
-    this.showArtworkBulkDialog = false;
+  locateEmberFolder() {
+    void this._libraryService.locateEmberDirectory();
   }
 
-  /** Queues a ZSO compression job for every PS2 ISO in the library. */
+  /** Number of games in the active tab that can receive artwork. */
+  get activeTab(): SystemTab {
+    return this.activeTabSubject.getValue();
+  }
+
+  /** Convert all PS2 ISOs in the library to ZSO. */
   convertAllToZso() {
     const candidates = this._libraryService.currentLibraryValue.filter(
       (g) =>
@@ -145,7 +123,7 @@ export class LibraryComponent {
   /** Queues a POPStarter-conversion job for every POPSLoader/RiptOPL-style PS1 game. */
   convertAllPs1ToPopstarter() {
     const candidates = this._libraryService.currentLibraryValue.filter(
-      (g) => g.system === 'PS1' && !g.isPs1Launcher && g.path && g.gameId
+      (g) => g.system === 'PS1' && !g.isPs1Launcher && g.format !== 'EMBER' && g.path && g.gameId
     );
     if (candidates.length === 0) {
       window.alert('No POPSLoader-style PS1 games to convert.');

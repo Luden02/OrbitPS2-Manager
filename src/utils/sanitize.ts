@@ -31,3 +31,50 @@ export function sanitizeGameFilename(name: string): string {
 
   return cleaned;
 }
+
+export type RiptOplPs1StorageKind = "VCD" | "EMBER";
+
+const RIPTOPL_PS1_STORAGE_MAX_BYTES: Record<RiptOplPs1StorageKind, number> = {
+  VCD: 160,
+  EMBER: 180,
+};
+
+function truncateUtf8Bytes(value: string, maxBytes: number): string {
+  if (Buffer.byteLength(value, "utf8") <= maxBytes) return value;
+
+  let result = "";
+  let bytes = 0;
+  for (const char of value) {
+    const charBytes = Buffer.byteLength(char, "utf8");
+    if (bytes + charBytes > maxBytes) break;
+    result += char;
+    bytes += charBytes;
+  }
+  return result;
+}
+
+/**
+ * Produces a storage identity that RiptOPL can actually round-trip.
+ *
+ * RiptOPL's VCD list stores at most 160 bytes of the filename stem and rejects
+ * the reserved POPSTARTER.VCD entry. Ember passes the bare game-folder name to
+ * its launcher and caps that argument at 180 bytes. Generic filesystem
+ * sanitization alone is therefore insufficient for PS1 storage names.
+ */
+export function sanitizeRiptOplPs1StorageName(
+  name: string,
+  kind: RiptOplPs1StorageKind,
+): string {
+  const maxBytes = RIPTOPL_PS1_STORAGE_MAX_BYTES[kind];
+  let cleaned = sanitizeGameFilename(name);
+  cleaned = truncateUtf8Bytes(cleaned, maxBytes)
+    .replace(/^[.\s]+|[.\s]+$/g, "");
+
+  if (!cleaned) cleaned = "_";
+
+  if (kind === "VCD" && cleaned.toUpperCase() === "POPSTARTER") {
+    cleaned = "POPSTARTER_";
+  }
+
+  return cleaned;
+}

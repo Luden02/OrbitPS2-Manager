@@ -2,6 +2,7 @@ import * as fs from "fs/promises";
 import path from "path";
 import { createLogger } from "../logger";
 import { isDirectoryEntry, resolveEntryType } from "../utils/fs-entry";
+import { normalisePs1GameIdFromTitleCfg } from "../utils/game-id-patterns";
 
 const log = createLogger("apps");
 
@@ -64,7 +65,7 @@ function parseTitleCfg(raw: string): TitleCfgData {
     const val = line.slice(eq + 1).trim();
     if (key === "title") out.title = val;
     else if (key === "boot") out.boot = val;
-    else if (key === "gameid") out.gameId = val;
+    else if (key === "gameid") out.gameId = normalisePs1GameIdFromTitleCfg(val);
     else if (key === "developer") out.developer = val;
     else if (key === "genre") out.genre = val;
     else if (key === "release") out.release = val;

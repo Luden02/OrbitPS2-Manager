@@ -1,7 +1,7 @@
 /** Friendly label for each known art-type suffix (`GAMEID_<code>.png`). */
 export const ART_TYPE_LABELS: Record<string, string> = {
   COV: 'Cover',
-  COV2: 'Cover (Alt 2)',
+  COV2: 'Back Cover',
   ICO: 'Icon',
   SCR: 'Screenshot',
   SCR2: 'Screenshot 2',
@@ -46,6 +46,10 @@ export function isScreenshotArtCode(code: string): boolean {
  *   - `SCR_00` / `SCR_05` / … → `SCR` → saved as `<gameID>_SCR.png` or
  *     `<gameID>_SCR2.png`
  *   - anything else keeps its code (`COV`, `COV2`, …)
+ *
+ * `COV2` is the back cover and is saved as `COV2`. It is never written as
+ * `COV3`: that slot holds the separate 3D box renders
+ * (archive.org/details/ps2-3d-art), which the database does not carry.
  *
  * Which of the two screenshot files a code lands in is a *selection* decision,
  * not one the code itself can make — see {@link artSaveNamesForSelection}.

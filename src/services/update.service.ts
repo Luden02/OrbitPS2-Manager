@@ -26,12 +26,18 @@ function parseVersion(raw: string): { parts: number[]; pre: string } {
 }
 
 // Matches this project's prerelease channels (see angular's build-channel.ts):
-// e.g. "alpha.0", "beta.1", "rc.2", "release-candidate.0", "indev.3".
-const IGNORED_PRERELEASE_PATTERN = /^(alpha|beta|rc|release-?candidate|indev)/i;
+// e.g. "alpha.0", "beta.1", "rc.2", "release-candidate.0", "indev.3", "nightly.1".
+const IGNORED_PRERELEASE_PATTERN = /^(alpha|beta|rc|release-?candidate|indev|nightly)/i;
 
-/** True if `version`'s prerelease tag is a channel we shouldn't notify about (alpha/beta/rc/indev). */
+/**
+ * True when this release must not be offered as an update.
+ * A rolling tag of exactly "nightly" has an empty prerelease and parses as
+ * 0.0.0, so it would hide every stable release GitHub lists after it.
+ */
 function isIgnoredPrerelease(version: string): boolean {
-  return IGNORED_PRERELEASE_PATTERN.test(parseVersion(version).pre);
+  if (IGNORED_PRERELEASE_PATTERN.test(parseVersion(version).pre)) return true;
+  const core = version.trim().replace(/^v/i, "").split("-")[0];
+  return /^nightly$/i.test(core);
 }
 
 /**
@@ -75,8 +81,9 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
       draft: boolean;
     }>;
 
-    // GitHub returns releases newest-first; take the first published one,
-    // skipping alpha/beta/rc/indev prereleases so users aren't nagged about them.
+    // GitHub returns releases newest-first. Take the first published one,
+    // skipping prerelease channels. The rolling "nightly" tag is one of them:
+    // it parses as 0.0.0 and would hide every stable release listed after it.
     const latest = releases.find((r) => !r.draft && !isIgnoredPrerelease(r.tag_name));
     if (!latest) {
       log.verbose("No published releases found");

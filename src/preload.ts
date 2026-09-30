@@ -180,6 +180,17 @@ function buildLibraryAPI() {
         launcherFolder,
         bootName
       ),
+    deleteEmberGameAndRelatedFiles: (
+      gamePath: string,
+      artDir: string,
+      identity: string,
+    ) =>
+      ipcRenderer.invoke(
+        "delete-ember-game-and-related-files",
+        gamePath,
+        artDir,
+        identity,
+      ),
     onDeletePs1Progress: (
       callback: (entry: {
         label: string;

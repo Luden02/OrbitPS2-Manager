@@ -209,8 +209,31 @@ export class ArtworkWizardDialogComponent {
     return ps1ArtworkIdentities(this.game());
   }
 
+  /**
+   * PS1 discs that could not be identified, or whose serial is shared by
+   * several games, must not drive automatic artwork or renames.
+   */
+  private blockUnresolvedPs1(): boolean {
+    const g = this.game();
+    return (
+      g.system === 'PS1' &&
+      !this.isPs1Launcher &&
+      g.identificationStatus !== undefined &&
+      g.identificationStatus !== 'identified'
+    );
+  }
+
   async ngOnInit() {
     const g = this.game();
+    if (this.blockUnresolvedPs1()) {
+      this.errorMessage.set(
+        g.identificationStatus === 'ambiguous'
+          ? 'This PS1 serial is shared by multiple discs or editions and could not be resolved safely. Artwork download is disabled until the disc is identified.'
+          : 'This PS1 disc could not be identified safely. Artwork download is disabled until the disc is identified.',
+      );
+      this.loading.set(false);
+      return;
+    }
     try {
       const result = await window.libraryAPI.listAvailableArt(g.gameId, this.system);
 
@@ -237,7 +260,12 @@ export class ArtworkWizardDialogComponent {
       // slots, so both are probed for every screenshot. The exact stem each base
       // may be saved under is kept so a hit maps back to its base unambiguously
       // (`SLUS` must not swallow `SLUS_Title_COV.png`).
-      const stems = identities.length > 0 ? identities : [localName];
+      // `localName` is where new art is written, so a file already there must
+      // count as existing even when it is not a current RiptOPL identity.
+      const stems =
+        identities.length > 0
+          ? [...new Set([localName, ...identities])]
+          : [localName];
       const baseOfFile = new Map<string, string>();
       for (const stem of stems) {
         for (const d of result.data) {
@@ -484,6 +512,7 @@ export class ArtworkWizardDialogComponent {
 
   download(): void {
     const g = this.game();
+    if (this.blockUnresolvedPs1()) return;
     let types = Array.from(this.selected());
     if (types.length === 0) return;
 
@@ -569,12 +598,23 @@ export class ArtworkWizardDialogComponent {
       return;
     }
 
-    void this._confirm.confirm(ps1CanonicalRenameConfirm([rename])).then((proceed) => {
-      if (!proceed) return;
-      this._jobs.enqueue([job]);
-      this.close();
-    });
+    // A second click while the prompt is open must not queue a second
+    // normalize/download job for the same disc.
+    if (this.confirmingRename) return;
+    this.confirmingRename = true;
+    void this._confirm
+      .confirm(ps1CanonicalRenameConfirm([rename]))
+      .then((proceed) => {
+        if (!proceed) return;
+        this._jobs.enqueue([job]);
+        this.close();
+      })
+      .finally(() => {
+        this.confirmingRename = false;
+      });
   }
+
+  private confirmingRename = false;
 
   close(): void {
     this.closed.emit();

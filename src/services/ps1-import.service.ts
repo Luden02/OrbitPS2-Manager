@@ -6,7 +6,10 @@ import { parseCueSheet, getCueDirectory } from "../utils/cue-parser";
 import { extractDiscZip } from "../utils/zip-extract";
 import { tryDeterminePs1GameIdFromHex } from "./game-id-resolver.service";
 import { downloadArtByGameId } from "./artwork.service";
-import { sanitizeGameFilename } from "../utils/sanitize";
+import {
+  sanitizeGameFilename,
+  sanitizeRiptOplPs1StorageName,
+} from "../utils/sanitize";
 import { describeFileAccessError } from "../utils/file-access-error";
 import { getAssetsDir } from "../utils/resource-path";
 import { createLogger } from "../logger";
@@ -76,6 +79,7 @@ export interface ImportPs1Result {
   vcdPath?: string;
   gameId?: string;
   gameName?: string;
+  identificationStatus?: "identified" | "ambiguous" | "unidentified";
 }
 
 export async function importPs1Game(
@@ -153,16 +157,30 @@ export async function importPs1Game(
 
     let gameId = overrideGameId?.trim();
     let gameName = overrideGameName?.trim();
-    if (!gameId || !gameName) {
-      const idResult = await tryDeterminePs1GameIdFromHex(binPath);
-      if (idResult.success && "gameId" in idResult) {
-        if (!gameId) gameId = idResult.gameId;
-        if (!gameName) gameName = idResult.gameName;
-      } else {
-        log.verbose(
-          `PS1 import: ${idResult.message || "could not determine game ID"} — treating as homebrew`
+    const idResult = await tryDeterminePs1GameIdFromHex(cuePath);
+    const identificationStatus =
+      idResult.identificationStatus ??
+      (idResult.success ? "identified" : "unidentified");
+    const manualIdentityOverride = !!gameId && !!gameName;
+
+    if (idResult.success && idResult.gameId) {
+      if (!gameId) gameId = idResult.gameId;
+      if (
+        !gameName &&
+        identificationStatus === "identified" &&
+        idResult.gameName
+      ) {
+        gameName = idResult.gameName;
+      }
+      if (identificationStatus === "ambiguous") {
+        log.warn(
+          `PS1 import: ${idResult.message || "shared serial could not be resolved"} — preserving the disc without automatic canonical naming/artwork`,
         );
       }
+    } else {
+      log.verbose(
+        `PS1 import: ${idResult.message || "could not determine game ID"} — treating as homebrew`,
+      );
     }
 
     if (!gameId) {
@@ -178,10 +196,13 @@ export async function importPs1Game(
     if (onProgress) onProgress(35, "Converting to VCD format");
 
     const sanitizedName = sanitizeGameFilename(gameName);
-    const vcdFilename =
+    const vcdStem = sanitizeRiptOplPs1StorageName(
       launcherMode === "popsloader"
-        ? `${sanitizedName}.VCD`
-        : `${gameId}.${sanitizedName}.VCD`;
+        ? sanitizedName
+        : `${gameId}.${sanitizedName}`,
+      "VCD",
+    );
+    const vcdFilename = `${vcdStem}.VCD`;
     const vcdPath = path.join(popsDir, vcdFilename);
     log.verbose(`Converting to VCD → POPS/${vcdFilename}`);
 
@@ -237,16 +258,28 @@ export async function importPs1Game(
       log.verbose("POPSLoader mode — no APPS launcher created");
     }
 
-    // Step 7: Download artwork
-    if (downloadArtwork) {
+    // Step 7: Download artwork only when disc identity is safe. A manual
+    // game-ID + title override is explicit user input and may opt back in.
+    const canDownloadArtwork =
+      identificationStatus === "identified" || manualIdentityOverride;
+    if (downloadArtwork && canDownloadArtwork) {
       if (onProgress) onProgress(93, "Downloading artwork");
       try {
-        // POPSLoader/RiptOPL match art to a game by its VCD filename (no
-        // GameID prefix), not by GameID — save it under that name instead
-        // of the POPStarter naming used below.
-        const artSaveName =
-          launcherMode === "popsloader" ? sanitizedName : elfFilename;
-        await downloadArtByGameId(artDir, gameId, "PS1", artSaveName, ["COV"]);
+        // RiptOPL's VCD row is keyed by the exact VCD filename stem.
+        await downloadArtByGameId(artDir, gameId, "PS1", vcdStem, ["COV"]);
+
+        // POPStarter mode also creates an Apps row. RiptOPL keys App artwork by
+        // the complete boot ELF filename, including the .ELF extension, so keep
+        // a second copy under that identity instead of sacrificing the VCD art.
+        if (elfFilename) {
+          await downloadArtByGameId(
+            artDir,
+            gameId,
+            "PS1",
+            elfFilename,
+            ["COV"],
+          );
+        }
       } catch {
         // Art download failure is non-critical
       }
@@ -260,6 +293,7 @@ export async function importPs1Game(
       vcdPath,
       gameId,
       gameName,
+      identificationStatus,
     };
   } catch (err: any) {
     log.error(`PS1 import failed for ${cueFilePath}:`, err?.message || err);

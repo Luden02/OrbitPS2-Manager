@@ -47,6 +47,15 @@ function needsPs1Normalization(game: Game): boolean {
 export function eligibleGamesForScope(games: Game[], scope: ArtScope): Game[] {
   return games.filter((g) => {
     if (!g.gameId) return false;
+    // Unresolved or shared-serial PS1 discs never get automatic artwork.
+    if (
+      g.system === 'PS1' &&
+      !g.isPs1Launcher &&
+      g.identificationStatus !== undefined &&
+      g.identificationStatus !== 'identified'
+    ) {
+      return false;
+    }
     switch (scope) {
       case 'PS2':
         return (g.system ?? 'PS2') === 'PS2';

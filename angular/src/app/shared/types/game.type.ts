@@ -33,6 +33,8 @@ export type Game = {
   isPs1Launcher?: boolean;
   /** Canonical PS1 title resolved from disc identity, independent of user naming. */
   canonicalTitle?: string;
+  /** PS1 disc-identification confidence used to gate automatic renames/artwork. */
+  identificationStatus?: 'identified' | 'ambiguous' | 'unidentified';
   /** Ember only: game-folder name used by RiptOPL as the artwork/config identity. */
   emberFolder?: string;
   /** Ember only: CUE file used to locate the game's BIN data track. */

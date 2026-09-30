@@ -1,0 +1,196 @@
+{
+  "sources": {
+    "gdx": "https://github.com/GDX-X/PFS-BatchKit-Manager/blob/5e7e835ced587bb4784fe24489e0918ca0d44e2c/PFS-BatchKit-Manager/BAT/Fix_Conflict_Gameid_Title.bat"
+  },
+  "conflicts": [
+    "SCUS_941.61",
+    "SCUS_941.67",
+    "SCUS_945.03",
+    "SCUS_945.81",
+    "SLPS_000.55",
+    "SLPS_000.71",
+    "SLPS_007.31",
+    "SLPS_007.65",
+    "SLPS_012.06",
+    "SLPS_012.32",
+    "SLPS_015.27",
+    "SLPS_016.30",
+    "SLPS_017.22",
+    "SLPS_019.72",
+    "SLPS_023.15",
+    "SLPS_024.56",
+    "SLPS_027.28",
+    "SLPS_029.00",
+    "SLPS_029.01",
+    "SLPS_029.02",
+    "SLPS_029.03",
+    "SLUS_001.90",
+    "SLUS_005.15",
+    "SLUS_005.94"
+  ],
+  "wholeFile": [
+    {
+      "internalId": "SLPS_015.27",
+      "md5": "4a1f0b0c83af1f0b86c148d7fcbbd683",
+      "title": "Alive (Disc 2)",
+      "discId": "SLPS_015.28"
+    },
+    {
+      "internalId": "SLPS_015.27",
+      "md5": "f9fc75f4c8b283f068de54ec2d20da6e",
+      "title": "Alive (Disc 3)",
+      "discId": "SLPS_015.29"
+    },
+    {
+      "internalId": "SLPS_027.28",
+      "md5": "e727685a14959bc599e290befa511351",
+      "title": "Breath of Fire IV (E3 Demo)",
+      "discId": "SLPD_027.28"
+    },
+    {
+      "internalId": "SLPS_027.28",
+      "md5": "f83e1fe73253a860301c5b67f7e67c48",
+      "title": "Breath of Fire IV: Utsurowazaru Mono",
+      "discId": "SLPS_027.28"
+    },
+    {
+      "internalId": "SLPS_012.32",
+      "md5": "e84810d0f4db6e6658ee4208eb9f5415",
+      "title": "Bust A Move (Disc 1) (Genteiban)",
+      "discId": "SLPG_012.32"
+    },
+    {
+      "internalId": "SCUS_945.03",
+      "md5": "29c642b78b68cfff9a47fac51dd6d3c2",
+      "title": "1Xtreme",
+      "discId": "SCUG_945.03"
+    },
+    {
+      "internalId": "SCUS_945.03",
+      "md5": "c9395ccb9bb59e9cea9170bf44bd5578",
+      "title": "ESPN Extreme Games",
+      "discId": "SCUS_945.03"
+    },
+    {
+      "internalId": "SCUS_941.67",
+      "md5": "ee9fc1cd31d1e2adf6230ffb8db64e0e",
+      "title": "Jet Moto 2: Championship Edition",
+      "discId": "SCUG_941.67"
+    },
+    {
+      "internalId": "SLPS_019.72",
+      "md5": "8c0cce8b5742deddf7092c5a13152170",
+      "title": "Kagayaku Kisetsu e",
+      "discId": "SLPS_019.75"
+    },
+    {
+      "internalId": "SLPS_016.30",
+      "md5": "497273e71e0dcc7da728fe46bb920386",
+      "title": "Kasei Monogatari (Genteiban)",
+      "discId": "SLPS_016.29"
+    },
+    {
+      "internalId": "SLPS_024.56",
+      "md5": "29a392aae9b274e11198af10fead4709",
+      "title": "Momotarou Dentetsu V",
+      "discId": "SLPS_024.58"
+    },
+    {
+      "internalId": "SLPS_024.56",
+      "md5": "58060b99f160b4f992550cce44541faf",
+      "title": "Momotarou Dentetsu V (Shokai Genteiban)",
+      "discId": "SLPS_024.56"
+    },
+    {
+      "internalId": "SLUS_005.94",
+      "md5": "6c88d7b7f085257caba543c99cc37d1c",
+      "title": "Metal Gear Solid (Disc 1) (Demo)",
+      "discId": "SLUD_005.94"
+    },
+    {
+      "internalId": "SCUS_945.81",
+      "md5": "af1ab5022b2cad063b692953cc4cfebf",
+      "title": "NBA ShootOut 2001 (Demo)",
+      "discId": "SCUS_945.82"
+    },
+    {
+      "internalId": "SLPS_007.65",
+      "md5": "3dace84a20e9ff6cd03644e6146bdbef",
+      "title": "Namco Museum Encore",
+      "discId": "SLPS_911.63"
+    },
+    {
+      "internalId": "SLPS_007.65",
+      "md5": "ed216e8f219c0bebb9dc1b860eb8f880",
+      "title": "Namco Museum Encore (Shokai Gentei)",
+      "discId": "SLPS_007.65"
+    },
+    {
+      "internalId": "SLPS_012.06",
+      "md5": "b5175999b9fb7b2202e2e7b970efd5dd",
+      "title": "Naniwa Wangan Battle: Tarzan Yamada & AutoSelect Sawa Kyoudai (Taikenban)",
+      "discId": "SLPM_803.01"
+    },
+    {
+      "internalId": "SLUS_001.90",
+      "md5": "1ed0d19fbd5471947d445d276f34bf0c",
+      "title": "Oddworld: Abe's Oddysee (Trade Demo)",
+      "discId": "SLUD_001.90"
+    },
+    {
+      "internalId": "SCUS_941.61",
+      "md5": "a86a49cd948c4f9c5063fbc360459764",
+      "title": "PlayStation Underground Number 1 (Disc 2)",
+      "discId": "SCUX_941.61"
+    },
+    {
+      "internalId": "SLPS_007.31",
+      "md5": "deaabe0baa857ad7fda000cf4535087f",
+      "title": "Sangoku Musou (Taikenban)",
+      "discId": "SLPM_800.85"
+    },
+    {
+      "internalId": "SLPS_029.00",
+      "md5": "5b84b0ea98bd78f20c42d84dfde10fe8",
+      "title": "SD Gundam: GGeneration-F (Disc 1) (Tokubetsu-ban)",
+      "discId": "SLPM_840.04"
+    },
+    {
+      "internalId": "SLPS_029.01",
+      "md5": "2d67bee7fc9ec69f73f43bbc9c778b4a",
+      "title": "SD Gundam: GGeneration-F (Disc 2) (Tokubetsu-ban)",
+      "discId": "SLPM_840.05"
+    },
+    {
+      "internalId": "SLPS_029.02",
+      "md5": "4858a5769c656b3d5de1ec486a194faa",
+      "title": "SD Gundam: GGeneration-F (Disc 3) (Tokubetsu-ban)",
+      "discId": "SLPM_840.06"
+    },
+    {
+      "internalId": "SLPS_029.03",
+      "md5": "98b11d483d537c9b441efc440d40534c",
+      "title": "SD Gundam: GGeneration-F (Disc 4) (Tokubetsu-ban)",
+      "discId": "SLPM_840.07"
+    },
+    {
+      "internalId": "SLPS_017.22",
+      "md5": "7eb012b852c2b912fb02579d5b713770",
+      "title": "Sougaku Toshi Osaka (Disc 2) (Object)",
+      "discId": "SLPS_017.23"
+    },
+    {
+      "internalId": "SLPS_023.15",
+      "md5": "ec51a74b08aee3f8e3656833f8e71cb8",
+      "title": "Soukou Kihei Votoms: Koutetsu no Gunzei (Shokai Seisan Genteiban)",
+      "discId": "SLPS_023.13"
+    },
+    {
+      "internalId": "SLUS_005.15",
+      "md5": "31f7e4d4fd01718e0602cf2d795ca797",
+      "title": "The Lost World: Jurassic Park: Special Edition",
+      "discId": "SLUG_005.15"
+    }
+  ],
+  "dataTrack": []
+}

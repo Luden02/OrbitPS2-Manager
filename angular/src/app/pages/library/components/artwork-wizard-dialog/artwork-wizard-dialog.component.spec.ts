@@ -4,6 +4,7 @@ import { LucideAngularModule, icons } from 'lucide-angular';
 import { ArtworkWizardDialogComponent } from './artwork-wizard-dialog.component';
 import { JobsService, NewImportJob } from '@shared/services/jobs.service';
 import { LibraryService } from '@shared/services/library.service';
+import { ConfirmDialogService, ConfirmDialogOptions } from '@shared/services/confirm-dialog.service';
 import { Game } from '@shared/types/game.type';
 
 const GAME: Game = {
@@ -381,5 +382,118 @@ describe('ArtworkWizardDialogComponent collapsed categories', () => {
     fixture.detectChanges();
 
     expect(headers()[0].classList.contains('is-collapsed')).toBe(false);
+  });
+});
+
+describe('ArtworkWizardDialogComponent PS1 canonical rename warning', () => {
+  let component: ArtworkWizardDialogComponent;
+  let enqueued: NewImportJob[];
+  let confirmCalls: ConfirmDialogOptions[];
+  let confirmResult: boolean;
+  let closedCount: number;
+  let libraryApiBackup: unknown;
+
+  function ps1Game(filename: string, canonicalTitle: string): Game {
+    return {
+      filename,
+      gameId: 'SCUS_944.25',
+      cdType: 'POPS',
+      title: canonicalTitle,
+      canonicalTitle,
+      path: `/opl/POPS/${filename}`,
+      extension: '.VCD',
+      parentPath: '/opl/POPS',
+      system: 'PS1',
+      format: 'POPS',
+    };
+  }
+
+  async function setup(game: Game): Promise<void> {
+    enqueued = [];
+    confirmCalls = [];
+    closedCount = 0;
+
+    TestBed.configureTestingModule({
+      imports: [ArtworkWizardDialogComponent, LucideAngularModule.pick(icons)],
+      providers: [
+        { provide: JobsService, useValue: { enqueue: (jobs: NewImportJob[]) => (enqueued = jobs) } },
+        { provide: LibraryService, useValue: { currentDirectoryValue: '/opl' } },
+        {
+          provide: ConfirmDialogService,
+          useValue: {
+            confirm: (options: ConfirmDialogOptions) => {
+              confirmCalls.push(options);
+              return Promise.resolve(confirmResult);
+            },
+          },
+        },
+      ],
+    });
+
+    (window as unknown as { libraryAPI: unknown }).libraryAPI = {
+      listAvailableArt: () =>
+        Promise.resolve({
+          success: true,
+          data: [{ type: 'COV', fileName: 'SCUS_944.25_COV.png', downloadUrl: 'https://example.test/c.png' }],
+        }),
+      checkArtFilesExist: () => Promise.resolve([]),
+    };
+
+    const fixture = TestBed.createComponent(ArtworkWizardDialogComponent);
+    fixture.componentRef.setInput('game', game);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    component = fixture.componentInstance;
+    component.closed.subscribe(() => (closedCount += 1));
+    component.selectAll();
+  }
+
+  const settle = () => new Promise((resolve) => setTimeout(resolve));
+
+  beforeEach(() => {
+    libraryApiBackup = (window as unknown as { libraryAPI: unknown }).libraryAPI;
+  });
+
+  afterEach(() => {
+    (window as unknown as { libraryAPI: unknown }).libraryAPI = libraryApiBackup;
+  });
+
+  it('warns before renaming and queues the normalizing job on Yes', async () => {
+    confirmResult = true;
+    await setup(ps1Game('Spyro 2.VCD', 'SPYRO 2'));
+
+    component.download();
+    expect(enqueued.length).toBe(0);
+    await settle();
+
+    expect(confirmCalls.length).toBe(1);
+    expect(confirmCalls[0].confirmLabel).toBe('Yes');
+    expect(confirmCalls[0].cancelLabel).toBe('No');
+    expect(confirmCalls[0].detail).toBe('Spyro 2 → SPYRO 2');
+    expect(enqueued.length).toBe(1);
+    expect(enqueued[0].normalizeKind).toBe('VCD');
+    expect(enqueued[0].canonicalName).toBe('SPYRO 2');
+    expect(closedCount).toBe(1);
+  });
+
+  it('queues nothing and stays open on No', async () => {
+    confirmResult = false;
+    await setup(ps1Game('Spyro 2.VCD', 'SPYRO 2'));
+
+    component.download();
+    await settle();
+
+    expect(enqueued.length).toBe(0);
+    expect(closedCount).toBe(0);
+  });
+
+  it('does not warn when the VCD already has its canonical name', async () => {
+    confirmResult = true;
+    await setup(ps1Game('SPYRO 2.VCD', 'SPYRO 2'));
+
+    component.download();
+
+    expect(confirmCalls.length).toBe(0);
+    expect(enqueued.length).toBe(1);
   });
 });

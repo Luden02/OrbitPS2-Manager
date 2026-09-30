@@ -12,6 +12,7 @@ interface StagedFile {
   gameName: string;
   detected: boolean;
   invalid: boolean;
+  identificationStatus?: 'identified' | 'ambiguous' | 'unidentified';
   message?: string;
 }
 
@@ -126,6 +127,23 @@ export class ImportComponent implements OnInit {
     try {
       const res: any = await detect;
       if (res?.success) {
+        if (this.isGamePsx && res.identificationStatus === 'ambiguous') {
+          return {
+            path,
+            fileName,
+            // Do not pass the shared internal serial back as a manual override.
+            // The backend re-identifies it during import, preserves the serial,
+            // and suppresses automatic canonical naming/artwork.
+            gameId: '',
+            gameName: fileName.replace(/\.(cue|iso|bin|zip)$/i, ''),
+            detected: false,
+            invalid: false,
+            identificationStatus: 'ambiguous',
+            message:
+              `Shared PS1 serial${res.gameId ? ` ${res.gameId}` : ''}: ` +
+              (res.message || 'disc/edition could not be resolved safely.'),
+          };
+        }
         return {
           path,
           fileName,
@@ -133,6 +151,7 @@ export class ImportComponent implements OnInit {
           gameName: res.gameName || '',
           detected: true,
           invalid: false,
+          identificationStatus: res.identificationStatus,
         };
       }
       message = res?.message;
@@ -151,6 +170,7 @@ export class ImportComponent implements OnInit {
         gameName: fileName.replace(/\.(cue|iso|bin|zip)$/i, ''),
         detected: false,
         invalid: false,
+        identificationStatus: 'unidentified',
         message: message ? `Homebrew (no registered game ID): ${message}` : 'Homebrew — a game ID will be auto-assigned.',
       };
     }

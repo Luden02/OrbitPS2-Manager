@@ -37,6 +37,7 @@ declare interface Window {
         cuePath: string;
         gameId?: string;
         gameName?: string;
+        identificationStatus?: 'identified' | 'ambiguous' | 'unidentified';
         sizeBytes: number;
         message?: string;
       }>;
@@ -67,15 +68,6 @@ declare interface Window {
       message?: string;
     }>;
 
-    /** Step 2 of PS1 launcher rename — apply the changes. */
-    renamePs1LauncherStep2: (params: {
-      newAppsFolder: string;
-      oldElfFile?: string;
-      newElfFile?: string;
-      newCfgContent?: string;
-      newTitle: string;
-    }) => Promise<{ success: boolean; message?: string }>;
-
     /** Normalize a RiptOPL VCD filename or Ember game-folder identity. */
     normalizeRiptOplPs1Storage: (params: {
       kind: 'VCD' | 'EMBER';
@@ -90,6 +82,15 @@ declare interface Window {
       localName?: string;
       message?: string;
     }>;
+
+    /** Step 2 of PS1 launcher rename — apply the changes. */
+    renamePs1LauncherStep2: (params: {
+      newAppsFolder: string;
+      oldElfFile?: string;
+      newElfFile?: string;
+      newCfgContent?: string;
+      newTitle: string;
+    }) => Promise<{ success: boolean; message?: string }>;
 
     /** Listen for PS1 rename progress events. */
     onRenamePs1Progress: (
@@ -193,21 +194,39 @@ declare interface Window {
       gameId?: string;
       gameName?: string;
       message?: string;
+      identificationStatus?: 'identified' | 'ambiguous' | 'unidentified';
+      identificationMethod?: 'boot' | 'pvd' | 'md5';
+      internalGameId?: string;
+      discId?: string;
     }>;
 
     /** Open native file picker for game files (CD/DVD). isGamePsx also allows picking a .zip containing the .cue/.bin. */
     openAskGameFiles: (isGameCd: boolean, isGameDvd: boolean, isGamePsx?: boolean) => Promise<any>;
 
-    /** Try to determine PS1 game ID from a binary file via hex patterns. */
-    tryDeterminePs1GameIdFromHex: (filepath: string) => Promise<any>;
+    /** Identify a PS1 disc from structured disc metadata and verified conflict rules. */
+    tryDeterminePs1GameIdFromHex: (filepath: string) => Promise<{
+      success: boolean;
+      gameId?: string;
+      formattedGameId?: string;
+      gameName?: string;
+      message?: string;
+      identificationStatus?: 'identified' | 'ambiguous' | 'unidentified';
+      identificationMethod?: 'boot' | 'pvd' | 'md5';
+      internalGameId?: string;
+      discId?: string;
+    }>;
 
-    /** Try to determine PS1 game ID from a VCD file. */
+    /** Identify a PS1 disc from a POPS VCD payload. */
     tryDeterminePs1GameIdFromVcd: (filepath: string) => Promise<{
       success: boolean;
       gameId?: string;
       formattedGameId?: string;
       gameName?: string;
       message?: string;
+      identificationStatus?: 'identified' | 'ambiguous' | 'unidentified';
+      identificationMethod?: 'boot' | 'pvd' | 'md5';
+      internalGameId?: string;
+      discId?: string;
     }>;
 
     /**
@@ -436,6 +455,17 @@ declare interface Window {
       gameId: string,
       launcherFolder?: string,
       bootName?: string,
+    ) => Promise<{
+      success: boolean;
+      entries: Array<{ label: string; path?: string; success: boolean; error?: string }>;
+      message?: string;
+    }>;
+
+    /** Delete an Ember game directory and artwork keyed by its folder name. */
+    deleteEmberGameAndRelatedFiles: (
+      gamePath: string,
+      artDir: string,
+      identity: string,
     ) => Promise<{
       success: boolean;
       entries: Array<{ label: string; path?: string; success: boolean; error?: string }>;

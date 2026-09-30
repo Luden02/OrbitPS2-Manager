@@ -3,7 +3,8 @@ import { BehaviorSubject, of, Subject } from 'rxjs';
 import { LucideAngularModule, icons } from 'lucide-angular';
 
 import { ArtworkBulkDialogComponent } from './artwork-bulk-dialog.component';
-import { JobsService, ImportJob, JobLogType } from '@shared/services/jobs.service';
+import { JobsService, ImportJob, JobLogType, NewImportJob } from '@shared/services/jobs.service';
+import { ConfirmDialogService, ConfirmDialogOptions } from '@shared/services/confirm-dialog.service';
 import { LibraryService } from '@shared/services/library.service';
 import { Game } from '@shared/types/game.type';
 
@@ -468,5 +469,108 @@ describe('ArtworkBulkDialogComponent run activity feedback', () => {
     fixture.destroy();
 
     expect(component.elapsedLabel()).toBe('');
+  });
+});
+
+describe('ArtworkBulkDialogComponent PS1 rename confirmation', () => {
+  let component: ArtworkBulkDialogComponent;
+  let enqueued: NewImportJob[];
+  let confirmCalls: ConfirmDialogOptions[];
+  let confirmResult: boolean;
+
+  function ps1Game(filename: string, canonicalTitle?: string): Game {
+    return {
+      filename,
+      gameId: 'SCUS_944.25',
+      cdType: 'POPS',
+      title: canonicalTitle ?? filename,
+      canonicalTitle,
+      path: `/opl/POPS/${filename}`,
+      extension: '.VCD',
+      parentPath: '/opl/POPS',
+      system: 'PS1',
+      format: 'POPS',
+    };
+  }
+
+  function setup(games: Game[]): void {
+    enqueued = [];
+    confirmCalls = [];
+
+    TestBed.configureTestingModule({
+      imports: [ArtworkBulkDialogComponent, LucideAngularModule.pick(icons)],
+      providers: [
+        { provide: LibraryService, useValue: { library$: of(games) } },
+        {
+          provide: JobsService,
+          useValue: {
+            jobs$: of([]),
+            enqueue: (jobs: NewImportJob[]) => {
+              enqueued = jobs;
+              return jobs.map((j, i) => ({ ...j, id: `job-${i}`, status: 'queued' }));
+            },
+            removeJob: () => { },
+          },
+        },
+        {
+          provide: ConfirmDialogService,
+          useValue: {
+            confirm: (options: ConfirmDialogOptions) => {
+              confirmCalls.push(options);
+              return Promise.resolve(confirmResult);
+            },
+          },
+        },
+      ],
+    });
+
+    const fixture = TestBed.createComponent(ArtworkBulkDialogComponent);
+    fixture.componentRef.setInput('initialScope', 'PS1');
+    fixture.detectChanges();
+    component = fixture.componentInstance;
+    component.onAllArtTypesChange(true);
+  }
+
+  const settle = () => new Promise((resolve) => setTimeout(resolve));
+
+  it('warns with a Yes/No prompt and forwards the rename on Yes', async () => {
+    confirmResult = true;
+    setup([ps1Game('Spyro 2.VCD', "SPYRO 2 - RIPTO'S RAGE")]);
+
+    component.start();
+    expect(enqueued.length).toBe(0);
+    await settle();
+
+    expect(confirmCalls.length).toBe(1);
+    expect(confirmCalls[0].message).toContain('canonical name and artwork');
+    expect(confirmCalls[0].confirmLabel).toBe('Yes');
+    expect(confirmCalls[0].cancelLabel).toBe('No');
+    expect(confirmCalls[0].detail).toContain("Spyro 2 → SPYRO 2 - RIPTO'S RAGE");
+    expect(enqueued.length).toBe(1);
+    expect(enqueued[0].normalizeKind).toBe('VCD');
+    expect(enqueued[0].canonicalName).toBe("SPYRO 2 - RIPTO'S RAGE");
+  });
+
+  it('cancels the whole run on No', async () => {
+    confirmResult = false;
+    setup([ps1Game('Spyro 2.VCD', "SPYRO 2 - RIPTO'S RAGE")]);
+
+    component.start();
+    await settle();
+
+    expect(enqueued.length).toBe(0);
+    expect(component.running).toBe(false);
+  });
+
+  it('does not prompt when every PS1 game already has its canonical name', () => {
+    confirmResult = true;
+    setup([ps1Game("SPYRO 2 - RIPTO'S RAGE.VCD", "SPYRO 2 - RIPTO'S RAGE")]);
+
+    component.start();
+
+    expect(confirmCalls.length).toBe(0);
+    expect(enqueued.length).toBe(1);
+    // Still normalized, so any GameID-named art migrates to the canonical name.
+    expect(enqueued[0].normalizeKind).toBe('VCD');
   });
 });

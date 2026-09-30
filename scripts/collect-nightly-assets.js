@@ -42,6 +42,8 @@ function classify(filePath) {
   if (base.endsWith('.dmg')) {
     if (/arm64|aarch64/i.test(base)) return 'mac-arm64';
     if (/x64|x86_64|amd64/i.test(base)) return 'mac-x64';
+    // electron-builder leaves the arch off the x64 DMG: "Product-1.3.1.dmg".
+    if (platform === 'mac') return 'mac-x64';
     return null;
   }
   if (base.endsWith('.AppImage')) return 'linux-appimage';

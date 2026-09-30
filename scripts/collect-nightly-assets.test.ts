@@ -44,6 +44,20 @@ test("maps builder output onto stable Nightly filenames", () => {
   );
 });
 
+test("electron-builder's unsuffixed DMG is the x64 build", () => {
+  const files = FIXTURES.map((file) =>
+    file.endsWith("-x64.dmg")
+      ? "artifacts/nightly-macos-latest/OrbitPS2Manager Nightly-1.3.1.dmg"
+      : file,
+  );
+  const plan = planNightlyAssets(files);
+  assert.deepEqual(plan.missing, []);
+  assert.equal(
+    plan.outputs.find((item) => item.name.endsWith("mac-x64.dmg"))?.source,
+    "artifacts/nightly-macos-latest/OrbitPS2Manager Nightly-1.3.1.dmg",
+  );
+});
+
 test("reports every required asset that did not show up", () => {
   const plan = planNightlyAssets(FIXTURES.filter((file) => !file.endsWith(".rpm") && !file.endsWith(".deb")));
   assert.deepEqual(plan.missing.sort(), [

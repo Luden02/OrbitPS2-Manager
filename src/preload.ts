@@ -18,6 +18,8 @@ function buildLibraryAPI() {
       ipcRenderer.invoke("get-ul-games", dirPath),
     getArtFolder: (dirPath: string) =>
       ipcRenderer.invoke("get-art-folder", dirPath),
+    getEmberGames: (emberPath: string) =>
+      ipcRenderer.invoke("get-ember-games", emberPath),
 
     // ── Game ID resolution ─────────────────────────
     resolveIsoGameId: (filepath: string) =>
@@ -126,6 +128,13 @@ function buildLibraryAPI() {
     removeAllConvertPs1PopstarterProgressListeners: () => {
       ipcRenderer.removeAllListeners("convert-ps1-popstarter-progress");
     },
+    normalizeRiptOplPs1Storage: (params: {
+      kind: "VCD" | "EMBER";
+      sourcePath: string;
+      gameId: string;
+      canonicalTitle: string;
+      artDir: string;
+    }) => ipcRenderer.invoke("normalize-riptopl-ps1-storage", params),
 
     // ── Delete ─────────────────────────────────────
     deleteApp: (oplRoot: string, folder: string) =>

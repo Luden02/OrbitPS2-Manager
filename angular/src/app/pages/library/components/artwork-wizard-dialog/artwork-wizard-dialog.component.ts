@@ -1,7 +1,7 @@
 import { Component, computed, input, output, signal } from '@angular/core';
 import { LucideAngularModule } from 'lucide-angular';
 import { Game } from '@shared/types/game.type';
-import { JobsService } from '@shared/services/jobs.service';
+import { JobsService, NewImportJob } from '@shared/services/jobs.service';
 import { LibraryService } from '@shared/services/library.service';
 import {
   ART_CATEGORIES,
@@ -13,6 +13,13 @@ import {
   MAX_SCREENSHOTS,
   UNCATEGORIZED_LABEL,
 } from '@shared/constants/artwork-presets';
+import {
+  ps1ArtworkIdentities,
+  ps1CanonicalRename,
+  ps1CanonicalRenameConfirm,
+  ps1CanonicalStorageName,
+} from '@shared/utils/ps1-artwork-identities';
+import { ConfirmDialogService } from '@shared/services/confirm-dialog.service';
 
 interface ArtworkOption {
   type: string;
@@ -170,6 +177,7 @@ export class ArtworkWizardDialogComponent {
   constructor(
     private readonly _jobs: JobsService,
     private readonly _library: LibraryService,
+    private readonly _confirm: ConfirmDialogService,
   ) { }
 
   private get isPs1Launcher(): boolean {
@@ -181,23 +189,24 @@ export class ArtworkWizardDialogComponent {
   }
 
   private get localName(): string {
-    return this.isPs1Launcher
-      ? this.game().ps1LauncherBoot || this.game().gameId
-      : this.game().gameId;
+    const g = this.game();
+    if (this.isPs1Launcher) {
+      return g.ps1LauncherBoot || g.gameId;
+    }
+    if (g.system === 'PS1') {
+      return (
+        ps1CanonicalStorageName(g) ||
+        (g.format === 'EMBER'
+          ? g.emberFolder
+          : g.filename?.replace(/\.[^./\\]+$/, '')) ||
+        g.gameId
+      );
+    }
+    return g.gameId;
   }
 
-  /**
-   * PS1 POPSLoader/RiptOPL VCDs only: the VCD title stem (filename without
-   * extension). Their art may be saved either as "<GameID>_<type>.png" or
-   * "<Title>_<type>.png", so both names have to be probed to detect what
-   * already exists.
-   */
-  private get ps1VcdStem(): string | undefined {
-    const g = this.game();
-    if (this.system !== 'PS1' || this.isPs1Launcher || !g.filename) {
-      return undefined;
-    }
-    return g.filename.replace(/\.[^./\\]+$/, '');
+  private get ps1ArtIdentities(): string[] {
+    return ps1ArtworkIdentities(this.game());
   }
 
   async ngOnInit() {
@@ -219,13 +228,16 @@ export class ArtworkWizardDialogComponent {
 
       const dirPath = this._library.currentDirectoryValue;
       const localName = this.localName;
-      const ps1VcdStem = this.ps1VcdStem;
+      // RiptOPL-readable local names for this game: the VCD filename stem plus
+      // the GameID only when that stem starts with it. PS2/launcher games fall
+      // back to the single GameID/boot name.
+      const identities = this.ps1ArtIdentities;
       // Existence is probed by save base, not by database code: art is stored as
       // the file OPL reads, and a screenshot can land on either of the two
       // slots, so both are probed for every screenshot. The exact stem each base
       // may be saved under is kept so a hit maps back to its base unambiguously
       // (`SLUS` must not swallow `SLUS_Title_COV.png`).
-      const stems = ps1VcdStem === undefined ? [localName] : [localName, ps1VcdStem];
+      const stems = identities.length > 0 ? identities : [localName];
       const baseOfFile = new Map<string, string>();
       for (const stem of stems) {
         for (const d of result.data) {
@@ -501,16 +513,31 @@ export class ArtworkWizardDialogComponent {
       if (saveBase !== t.toUpperCase()) artSaveAsOverrides[t] = saveBase;
     }
 
-    this._jobs.enqueue([
-      {
-        type: 'artwork',
-        label: g.title || g.gameId || g.filename,
-        filePath: g.path,
-        gameId: g.gameId,
-        gameName: g.title || '',
-        downloadArtwork: false,
-        system: this.system,
-        saveAsName: this.isPs1Launcher ? g.ps1LauncherBoot : undefined,
+    const job: NewImportJob = {
+      type: 'artwork',
+      label: g.title || g.gameId || g.filename,
+      filePath: g.path,
+      gameId: g.gameId,
+      gameName: g.title || '',
+      downloadArtwork: false,
+      system: this.system,
+      // PS1 VCDs save under their on-disk filename stem so RiptOPL reads them
+      // from `ART/<VCD_FILENAME>_<TYPE>.png`; launchers keep the boot ELF name.
+      saveAsName: this.isPs1Launcher
+        ? g.ps1LauncherBoot
+        : this.system === 'PS1'
+          ? this.localName
+          : undefined,
+      normalizeKind:
+        g.system === 'PS1' && !this.isPs1Launcher && g.canonicalTitle
+          ? g.format === 'EMBER'
+            ? 'EMBER'
+            : 'VCD'
+          : undefined,
+      canonicalName:
+        g.system === 'PS1' && !this.isPs1Launcher
+          ? ps1CanonicalStorageName(g)
+          : undefined,
         artTypes: types,
         artSaveAsOverrides:
           Object.keys(artSaveAsOverrides).length > 0
@@ -530,9 +557,23 @@ export class ArtworkWizardDialogComponent {
           : this.skipExisting()
             ? false
             : undefined,
-      },
-    ]);
-    this.close();
+    };
+
+    // RiptOPL keys PS1 artwork by the VCD/Ember folder name, so the job renames
+    // storage to the canonical title first. Warn before touching the filename;
+    // "No" leaves the wizard open and nothing is queued.
+    const rename = job.normalizeKind ? ps1CanonicalRename(g) : undefined;
+    if (!rename) {
+      this._jobs.enqueue([job]);
+      this.close();
+      return;
+    }
+
+    void this._confirm.confirm(ps1CanonicalRenameConfirm([rename])).then((proceed) => {
+      if (!proceed) return;
+      this._jobs.enqueue([job]);
+      this.close();
+    });
   }
 
   close(): void {

@@ -77,6 +77,14 @@ export interface ImportJob {
    */
   saveAsName?: string;
   /**
+   * Artwork only, RiptOPL PS1: the storage identity that must be normalized to
+   * `canonicalName` before the art files are written. RiptOPL resolves PS1 art
+   * by the on-disk VCD/Ember name, so art has to land under the final name.
+   */
+  normalizeKind?: 'VCD' | 'EMBER';
+  /** Artwork only: RiptOPL-safe PS1 storage name to normalize to before download. */
+  canonicalName?: string;
+  /**
    * Artwork only: whether to overwrite existing art files. When `false` only
    * the missing files are fetched. When `undefined` (single-game fetch) a
    * confirmation dialog is shown before touching existing files.
@@ -343,7 +351,36 @@ export class JobsService {
 
   private async runArtworkJob(job: ImportJob, dirPath: string) {
     const artDir = `${dirPath}/ART`;
-    const saveAsName = job.saveAsName;
+    let saveAsName = job.saveAsName;
+    let normalizedStorage = false;
+
+    if (job.normalizeKind && job.canonicalName) {
+      this.logJob(
+        job.id,
+        `Normalizing RiptOPL ${job.normalizeKind} identity to "${job.canonicalName}"…`,
+        'step',
+      );
+      const normalized = await window.libraryAPI.normalizeRiptOplPs1Storage({
+        kind: job.normalizeKind,
+        sourcePath: job.filePath,
+        gameId: job.gameId,
+        canonicalTitle: job.canonicalName,
+        artDir,
+      });
+      if (!normalized?.success) {
+        return {
+          success: false,
+          artRefresh: normalizedStorage ? false : undefined,
+          message: normalized?.message || 'Failed to normalize RiptOPL PS1 storage identity.',
+        };
+      }
+      normalizedStorage = !!normalized.changed;
+      saveAsName = normalized.localName || saveAsName;
+      if (normalized.changed) {
+        this.logJob(job.id, `Storage identity renamed to "${saveAsName}"`, 'success');
+      }
+    }
+
     const localName = saveAsName || job.gameId;
     const artSaveOverrides = job.artSaveAsOverrides ?? {};
     const types = job.artTypes?.length ? job.artTypes : ['COV', 'ICO', 'SCR'];
@@ -386,6 +423,9 @@ export class JobsService {
         return {
           success: false,
           cancelled: true,
+          // Storage may already have been renamed above; the library must
+          // re-scan or it keeps pointing at the old VCD/folder path.
+          artRefresh: normalizedStorage ? false : undefined,
           message: 'Cancelled by user.',
         };
       }
@@ -407,7 +447,11 @@ export class JobsService {
 
     if (toDownload.length === 0) {
       this.logJob(job.id, 'Already up to date', 'success');
-      return { success: true, message: 'Artwork already up to date.' };
+      return {
+        success: true,
+        message: 'Artwork already up to date.',
+        artRefresh: normalizedStorage ? false : undefined,
+      };
     }
 
     this.logJob(
@@ -460,6 +504,7 @@ export class JobsService {
         this.logJob(job.id, 'No artwork found in the database', 'error');
         return {
           success: false,
+          artRefresh: normalizedStorage ? false : undefined,
           message: `No artwork found for ${job.label} (${job.gameId}) in the ${job.system ?? 'PS2'} database.`,
         };
       }
@@ -476,12 +521,20 @@ export class JobsService {
         `Artwork partially ${verb} — ${savedCount} of ${total} asset${total === 1 ? '' : 's'} ` +
         `written; missing: ${failedTypes.join(', ')}.`;
       this.logJob(job.id, message, 'error');
-      return { success: true, message };
+      return {
+        success: true,
+        message,
+        artRefresh: normalizedStorage ? false : undefined,
+      };
     }
 
     const message = `Artwork ${verb}.`;
     this.logJob(job.id, message, 'success');
-    return { success: true, message };
+    return {
+      success: true,
+      message,
+      artRefresh: normalizedStorage ? false : undefined,
+    };
   }
 
   private async runRenameJob(job: ImportJob) {

@@ -3,6 +3,7 @@ import path from "path";
 import https from "https";
 import { createLogger, formatBytes } from "../logger";
 import { artRemoteFileNames, artSlotFileNames } from "./artwork-filenames";
+import { validateArtworkPng } from "../utils/png-artwork";
 
 const log = createLogger("artwork");
 
@@ -138,6 +139,24 @@ export async function downloadArtByGameId(
           );
         }
         continue;
+      }
+
+      // Real downloads always validate the RiptOPL/OPL PNG contract. A
+      // mismatch is only warned about — the original bytes are written anyway,
+      // rather than losing an asset. Test downloaders are skipped, so the
+      // sentinel bytes they return never trip the validator.
+      if (downloader === downloadBuffer) {
+        const { expected, failures } = validateArtworkPng(
+          buffer,
+          system,
+          saveType,
+        );
+        if (failures.length > 0) {
+          log.warn(
+            `${type} artwork for ${localName} may not display: ${failures.join("; ")}` +
+              (expected ? ` (expected ${expected.width}x${expected.height})` : ""),
+          );
+        }
       }
 
       try {

@@ -1,5 +1,14 @@
 import { Game } from '@shared/types/game.type';
-import { KNOWN_ART_TYPES } from '@shared/constants/artwork-presets';
+import {
+  artSaveNameForType,
+  KNOWN_ART_TYPES,
+} from '@shared/constants/artwork-presets';
+import {
+  ps1ArtworkIdentities,
+  ps1CanonicalRename,
+  ps1CanonicalStorageName,
+  ps1StorageIdentity,
+} from '@shared/utils/ps1-artwork-identities';
 
 /** Which section of the library an artwork bulk run should target. */
 export type ArtScope = 'PS2' | 'PS1' | 'APPS' | 'ALL';
@@ -16,6 +25,17 @@ export interface ArtTarget {
   gameId: string;
   system: 'PS1' | 'PS2';
   saveAsName?: string;
+  normalizeKind?: 'VCD' | 'EMBER';
+  canonicalName?: string;
+  /**
+   * Current PS1 storage name (VCD stem / Ember folder) when it differs from
+   * the canonical title, i.e. the name normalization would rename away from.
+   */
+  renameFrom?: string;
+}
+
+function needsPs1Normalization(game: Game): boolean {
+  return !!ps1CanonicalRename(game);
 }
 
 /**
@@ -48,32 +68,52 @@ export function eligibleGamesForScope(games: Game[], scope: ArtScope): Game[] {
  * games that already have every requested asset type are dropped entirely —
  * they are neither queued nor logged, matching what the dialog's pre-flight
  * summary promises.
+ *
+ * With `opts.normalize` (the user agreed to rename PS1 storage to canonical
+ * titles) PS1 targets carry `normalizeKind`/`canonicalName` so the job renames
+ * the VCD/Ember folder before saving art, and a game whose name is not yet
+ * canonical is queued even if its art is complete. Without it, PS1 art is
+ * saved under the current storage name — the name RiptOPL actually reads —
+ * and nothing on disk is renamed.
  */
 export function artTargetsForScope(
   games: Game[],
   scope: ArtScope,
-  opts?: { onlyMissing?: boolean; artTypes?: ArtType[] },
+  opts?: { onlyMissing?: boolean; artTypes?: ArtType[]; normalize?: boolean },
 ): ArtTarget[] {
   const types = opts?.artTypes?.length ? opts.artTypes : DEFAULT_ART_TYPES;
+  const normalize = !!opts?.normalize;
   return eligibleGamesForScope(games, scope)
     .filter((g) => {
       if (!opts?.onlyMissing) return true;
-      return existingArtTypesForGame(g, types).length < types.length;
+      return (
+        (normalize && needsPs1Normalization(g)) ||
+        existingArtTypesForGame(g, types).length < types.length
+      );
     })
     .map((g) => {
       const isPs1Launcher = g.system === 'APPS' && !!g.isPs1Launcher;
+      const currentPs1Identity = ps1StorageIdentity(g);
+      const canonicalPs1Identity = ps1CanonicalStorageName(g);
+      const normalizeThis =
+        normalize && g.system === 'PS1' && !!canonicalPs1Identity;
       return {
         label: g.title || g.gameId || g.filename,
         path: g.path,
         gameId: g.gameId,
         system: isPs1Launcher || g.system === 'PS1' ? 'PS1' : 'PS2',
-        // PS1 launcher art is keyed by boot ELF name (e.g. "XX.SCUS_944.02.Game.ELF"),
-        // so the saved files must use that stem to match the library matcher.
-        // PS1 POPSLoader/RiptOPL VCDs intentionally save under the gameId: the
-        // repo is keyed by game folder and `existingArtTypesForGame` already
-        // detects both the gameId and title-stem conventions, so re-downloading
-        // won't duplicate art that the importer saved under the VCD title.
-        saveAsName: isPs1Launcher ? g.ps1LauncherBoot : undefined,
+        saveAsName: isPs1Launcher
+          ? g.ps1LauncherBoot
+          : g.system === 'PS1'
+            ? currentPs1Identity
+            : undefined,
+        normalizeKind: normalizeThis
+          ? g.format === 'EMBER'
+            ? ('EMBER' as const)
+            : ('VCD' as const)
+          : undefined,
+        canonicalName: normalizeThis ? canonicalPs1Identity : undefined,
+        renameFrom: needsPs1Normalization(g) ? currentPs1Identity : undefined,
       };
     });
 }
@@ -85,9 +125,13 @@ export function artTargetsForScope(
  * dialog's pre-flight numbers agree with what the Library page actually
  * shows:
  *   - PS1 POPStarter launchers  → matched by boot ELF filename (name-based)
- *   - PS1 POPSLoader/RiptOPL VCDs → matched by gameId **or** VCD title stem
- *     (their art may be saved under either convention)
+ *   - PS1 VCDs                 → VCD stem, plus GameID only when the current
+ *     VCD filename itself begins with that GameID (RiptOPL's compatibility fallback)
+ *   - Ember games               → game-folder name only
  *   - Everything else          → matched by gameId
+ *
+ * Art saved under a canonical title the storage has not been renamed to is
+ * deliberately not counted: RiptOPL cannot see it, so it is not "present".
  */
 export function existingArtTypesForGame(
   game: Game,
@@ -95,19 +139,20 @@ export function existingArtTypesForGame(
 ): ArtType[] {
   const art = Array.isArray(game.art) ? game.art : [];
   const launcherBoot = game.isPs1Launcher ? game.ps1LauncherBoot : undefined;
-  const ps1VcdStem =
-    game.system === 'PS1' && game.filename
-      ? game.filename.replace(/\.[^./\\]+$/, '')
-      : undefined;
-  return types.filter((type) =>
-    art.some(
-      (a) =>
-        a.type?.toUpperCase() === type &&
-        (launcherBoot
-          ? a.name === `${launcherBoot}_${type}`
-          : ps1VcdStem
-            ? a.gameId === game.gameId || a.gameId === ps1VcdStem
-            : a.gameId === game.gameId),
-    ),
+  const acceptedNames = new Set(
+    game.system === 'PS1'
+      ? ps1ArtworkIdentities(game)
+      : [game.gameId].filter((value): value is string => !!value),
   );
+
+  return types.filter((type) => {
+    const installedType = artSaveNameForType(type).toUpperCase();
+    return art.some(
+      (a) =>
+        a.type?.toUpperCase() === installedType &&
+        (launcherBoot
+          ? a.name === `${launcherBoot}_${installedType}`
+          : acceptedNames.has(a.gameId)),
+    );
+  });
 }

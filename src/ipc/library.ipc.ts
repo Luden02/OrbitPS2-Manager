@@ -7,6 +7,7 @@ import {
   createOplFolders,
   renameGamefile,
   moveFile,
+  getEmberGames,
 } from "../services/library.service";
 import {
   resolveIsoGameId,
@@ -26,6 +27,10 @@ export function registerLibraryIpc(): void {
 
   ipcMain.handle("get-art-folder", async (_event, dirPath: string) => {
     return getArtFolder(dirPath);
+  });
+
+  ipcMain.handle("get-ember-games", async (_event, emberPath: string) => {
+    return getEmberGames(emberPath);
   });
 
   ipcMain.handle("check-opl-structure", async (_event, dirPath: string) => {

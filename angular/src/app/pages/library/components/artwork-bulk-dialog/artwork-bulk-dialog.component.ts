@@ -21,8 +21,11 @@ import {
   JobsService,
 } from '@shared/services/jobs.service';
 import { Game } from '@shared/types/game.type';
+import { ps1CanonicalRenameConfirm } from '@shared/utils/ps1-artwork-identities';
+import { ConfirmDialogService } from '@shared/services/confirm-dialog.service';
 import {
   ArtScope,
+  ArtTarget,
   ArtType,
   DEFAULT_ART_TYPES,
   artTargetsForScope,
@@ -243,6 +246,7 @@ export class ArtworkBulkDialogComponent implements OnInit {
   constructor(
     private readonly _library: LibraryService,
     private readonly _jobs: JobsService,
+    private readonly _confirm: ConfirmDialogService,
   ) {
     // Never leave the interval running past the dialog's own lifetime.
     this._destroyRef.onDestroy(() => this.stopElapsedTimer());
@@ -318,21 +322,49 @@ export class ArtworkBulkDialogComponent implements OnInit {
     if (
       this.eligibleCount() === 0 ||
       this.artTypes().length === 0 ||
-      this.running
+      this.running ||
+      this.confirmingRenames
     )
       return;
-    // In "missing only" mode only games that actually lack at least one
-    // selected asset type are queued — complete games are skipped entirely
-    // (no job, no log line), matching the pre-flight summary.
-    const targets = artTargetsForScope(
-      this.games(),
-      this.scope(),
-      this.overwrite()
-        ? undefined
-        : { onlyMissing: true, artTypes: this.artTypes() },
-    );
+
+    // RiptOPL keys PS1 artwork by the VCD/Ember folder name, so PS1 storage is
+    // always normalized to the canonical title. Renaming files on disk is
+    // never done silently: warn with the full list and let "No" cancel the run.
+    const targets = artTargetsForScope(this.games(), this.scope(), this.targetOptions());
     if (targets.length === 0) return;
 
+    const renames = targets.flatMap((t) =>
+      t.renameFrom && t.canonicalName
+        ? [{ from: t.renameFrom, to: t.canonicalName }]
+        : [],
+    );
+    if (renames.length === 0) {
+      this.enqueueTargets(targets);
+      return;
+    }
+
+    this.confirmingRenames = true;
+    void this._confirm
+      .confirm(ps1CanonicalRenameConfirm(renames))
+      .then((proceed) => {
+        this.confirmingRenames = false;
+        if (proceed) this.enqueueTargets(targets);
+      });
+  }
+
+  private confirmingRenames = false;
+
+  private targetOptions() {
+    // In "missing only" mode only games that actually lack at least one
+    // selected asset type are queued — complete games are skipped entirely
+    // (no job, no log line), matching the pre-flight summary. Games whose
+    // storage name is not yet canonical are always queued so they get renamed.
+    return this.overwrite()
+      ? { normalize: true }
+      : { onlyMissing: true, artTypes: this.artTypes(), normalize: true };
+  }
+
+  private enqueueTargets(targets: ArtTarget[]) {
     const created = this._jobs.enqueue(
       targets.map((t) => ({
         type: 'artwork' as const,
@@ -343,6 +375,8 @@ export class ArtworkBulkDialogComponent implements OnInit {
         downloadArtwork: false,
         system: t.system,
         saveAsName: t.saveAsName,
+        normalizeKind: t.normalizeKind,
+        canonicalName: t.canonicalName,
         overwrite: this.overwrite(),
         artTypes: [...this.artTypes()],
         wideSlotFallback: true,

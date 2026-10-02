@@ -7,8 +7,9 @@ on:
 
 # Queue runs instead of cancelling them. A cancel during publish can leave the
 # release with assets from two builds. A newer queued run replaces an older one.
+# One group per branch, so a manual run elsewhere never displaces main.
 concurrency:
-  group: nightly
+  group: nightly-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -137,7 +138,17 @@ jobs:
             echo "The in-app update check skips this pre-release and follows stable releases."
           } > "$notes"
 
-          if gh release view nightly-rc --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          # Only "release not found" means create. Any other API error stops here.
+          if out="$(gh release view nightly-rc --repo "$GITHUB_REPOSITORY" 2>&1)"; then
+            exists=1
+          elif grep -qi 'release not found' <<<"$out"; then
+            exists=0
+          else
+            echo "$out" >&2
+            exit 1
+          fi
+
+          if [ "$exists" = 1 ]; then
             gh release upload nightly-rc dist-nightly/* --repo "$GITHUB_REPOSITORY" --clobber
             git tag -f nightly-rc "$GITHUB_SHA"
             git push --force origin "refs/tags/nightly-rc"
@@ -149,8 +160,9 @@ jobs:
               --target "$GITHUB_SHA" \
               --notes-file "$notes"
           else
+            # The tag can outlive a release deleted in the UI.
             git tag -f nightly-rc "$GITHUB_SHA"
-            git push origin "refs/tags/nightly-rc"
+            git push --force origin "refs/tags/nightly-rc"
             gh release create nightly-rc \
               --repo "$GITHUB_REPOSITORY" \
               --prerelease \

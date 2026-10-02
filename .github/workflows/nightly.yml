@@ -5,9 +5,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Queue runs instead of cancelling them. A cancel during publish can leave the
+# release with assets from two builds. A newer queued run replaces an older one.
 concurrency:
   group: nightly
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -95,6 +97,8 @@ jobs:
 
   publish:
     needs: build
+    # A manual run on another branch still builds, but only main publishes.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write

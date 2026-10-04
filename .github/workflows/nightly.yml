@@ -1,0 +1,174 @@
+name: Nightly
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Queue runs instead of cancelling them. A cancel during publish can leave the
+# release with assets from two builds. A newer queued run replaces an older one.
+# One group per branch, so a manual run elsewhere never displaces main.
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: npm test
+
+  build:
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            args: --win
+            extra: ""
+          - os: macos-latest
+            args: --mac --x64 --arm64
+            extra: -c.mac.identity=null
+          - os: ubuntu-latest
+            args: --linux
+            extra: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            angular/package-lock.json
+      - name: Install Linux packaging tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y binutils fakeroot rpm
+      - run: npm ci
+      - run: npm ci
+        working-directory: angular
+      - name: Stamp build info
+        run: npm run build:info
+        env:
+          ORBIT_CHANNEL: nightly
+      - run: npm run build --prefix angular
+      - run: npm run build
+      - name: Package
+        run: |
+          npx electron-builder ${{ matrix.args }} --publish never \
+            -c.productName="OrbitPS2Manager Nightly" \
+            -c.appId=com.orbitps2.manager.nightly \
+            -c.extraMetadata.name=orbitps2-manager-nightly \
+            ${{ matrix.extra }}
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - name: Stage distributables
+        run: |
+          shopt -s nullglob
+          files=(build/*.exe build/*.zip build/*.dmg build/*.AppImage build/*.deb build/*.rpm)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "electron-builder produced no distributables"
+            exit 1
+          fi
+          mkdir -p staged
+          cp "${files[@]}" staged/
+          ls -l staged
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nightly-${{ matrix.os }}
+          retention-days: 14
+          if-no-files-found: error
+          path: staged/
+
+  publish:
+    needs: build
+    # A manual run on another branch still builds, but only main publishes.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: nightly-*
+          path: artifacts
+      - name: Collect stable asset names
+        run: node scripts/collect-nightly-assets.js artifacts dist-nightly
+      # Tag is nightly-rc, not nightly. Clients already on 1.3.1 ignore a
+      # prerelease that starts with rc. They do not ignore a tag named
+      # nightly: it parses as 0.0.0 and hides every stable release after it.
+      # The GitHub release title stays "Nightly".
+      - name: Publish Nightly pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          notes="$(mktemp)"
+          {
+            echo "Nightly"
+            echo
+            echo "Commit: https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
+            echo "Build: ${GITHUB_SHA::7}"
+            echo
+            echo "Pre-release of main. This build installs beside the stable app as OrbitPS2Manager Nightly."
+            echo
+            echo "Unsigned build. Windows SmartScreen may warn. On macOS, clear quarantine:"
+            echo 'xattr -dr com.apple.quarantine "/Applications/OrbitPS2Manager Nightly.app"'
+            echo
+            echo "The in-app update check skips this pre-release and follows stable releases."
+          } > "$notes"
+
+          # Only "release not found" means create. Any other API error stops here.
+          if out="$(gh release view nightly-rc --repo "$GITHUB_REPOSITORY" 2>&1)"; then
+            exists=1
+          elif grep -qi 'release not found' <<<"$out"; then
+            exists=0
+          else
+            echo "$out" >&2
+            exit 1
+          fi
+
+          if [ "$exists" = 1 ]; then
+            gh release upload nightly-rc dist-nightly/* --repo "$GITHUB_REPOSITORY" --clobber
+            git tag -f nightly-rc "$GITHUB_SHA"
+            git push --force origin "refs/tags/nightly-rc"
+            gh release edit nightly-rc \
+              --repo "$GITHUB_REPOSITORY" \
+              --prerelease \
+              --latest=false \
+              --title "Nightly" \
+              --target "$GITHUB_SHA" \
+              --notes-file "$notes"
+          else
+            # The tag can outlive a release deleted in the UI.
+            git tag -f nightly-rc "$GITHUB_SHA"
+            git push --force origin "refs/tags/nightly-rc"
+            gh release create nightly-rc \
+              --repo "$GITHUB_REPOSITORY" \
+              --prerelease \
+              --latest=false \
+              --title "Nightly" \
+              --target "$GITHUB_SHA" \
+              --notes-file "$notes" \
+              dist-nightly/*
+          fi

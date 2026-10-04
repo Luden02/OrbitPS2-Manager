@@ -5,6 +5,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)
 ![License](https://img.shields.io/badge/license-GPLv3-green)
 [![Releases](https://img.shields.io/github/v/release/Luden02/OrbitPS2-Manager)](https://github.com/Luden02/OrbitPS2-Manager/releases)
+[![Nightly](https://github.com/Luden02/OrbitPS2-Manager/actions/workflows/nightly.yml/badge.svg)](https://github.com/Luden02/OrbitPS2-Manager/releases/tag/nightly-rc)
 [![AUR](https://img.shields.io/aur/version/orbitopl-toolbox-bin)](https://aur.archlinux.org/packages/orbitopl-toolbox-bin)
 
 # 📖 About
@@ -82,7 +83,9 @@ The goal isn't to replace OPLManager, but to offer an alternative — one that's
 
 # 💻 Installation
 
-Grab the latest build from the [Releases](https://github.com/Luden02/OrbitPS2-Manager/releases) page.
+Grab the latest stable build from the [Releases](https://github.com/Luden02/OrbitPS2-Manager/releases) page.
+
+**Nightly** is a pre-release of `main`, published on every push: [Nightly](https://github.com/Luden02/OrbitPS2-Manager/releases/tag/nightly-rc). It installs beside the stable app as OrbitPS2Manager Nightly. The in-app update check skips this pre-release and follows stable releases.
 
 On Arch Linux you can also use the [AUR binary](https://aur.archlinux.org/packages/orbitopl-toolbox-bin) or [AUR git](https://aur.archlinux.org/packages/orbitopl-toolbox-git) packages (thanks to u/m0tic).
 

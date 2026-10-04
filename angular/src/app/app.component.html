@@ -7,7 +7,9 @@
     <i-lucide name="flask-conical" size="14" class="text-warning"></i-lucide>
     <span class="font-semibold uppercase tracking-wide text-warning">{{ buildChannelLabel }} build</span>
     <span class="text-base-content/60">— expect bugs and instability. Not for production use.</span>
-    <span class="ml-auto font-mono text-base-content/40">v{{ version }}</span>
+    @if (buildChannel !== 'nightly') {
+    <span class="ml-auto font-mono text-base-content/40">{{ versionLabel }}</span>
+    }
   </div>
   }
 
@@ -190,7 +192,7 @@
       <span class="font-mono">{{ this._libraryService.librarySizeGb$ | async }} GB</span>
       <span class="opacity-40">·</span>
       }
-      <span class="font-display tracking-wider text-base-content/35">OrbitPS2 v{{ version }}</span>
+      <span class="font-display tracking-wider text-base-content/35">OrbitPS2 {{ versionLabel }}</span>
     </div>
   </footer>
 </div>

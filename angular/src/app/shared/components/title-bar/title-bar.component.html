@@ -3,7 +3,7 @@
   <div class="drag-region flex flex-1 items-center gap-2 px-3 h-full" (dblclick)="canMaximize && maximizeToggle()">
     <img src="icon.svg" alt="" class="h-4 w-4" />
     <span class="font-display text-xs font-semibold tracking-wide text-base-content/70">OrbitPS2 Manager <span
-        class="text-base-content/35">v{{ version }}</span></span>
+        class="text-base-content/35">{{ versionLabel }}</span></span>
   </div>
 
   <div class="window-controls flex h-full items-stretch">

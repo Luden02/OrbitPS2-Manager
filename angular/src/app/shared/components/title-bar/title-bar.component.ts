@@ -3,9 +3,11 @@ import {
   Component,
   DestroyRef,
   inject,
+  isDevMode,
   OnInit,
 } from '@angular/core';
 import { LucideAngularModule } from 'lucide-angular';
+import { resolveBuildChannel, versionBadge } from '../../build-channel';
 import { BuildInfo } from '../../build-info';
 
 @Component({
@@ -17,7 +19,10 @@ import { BuildInfo } from '../../build-info';
 export class TitleBarComponent implements OnInit {
   private readonly _destroyRef = inject(DestroyRef);
   private readonly _cdr = inject(ChangeDetectorRef);
-  public readonly version = BuildInfo.version;
+  public readonly versionLabel = versionBadge(
+    BuildInfo.version,
+    resolveBuildChannel(BuildInfo.version, isDevMode(), BuildInfo.channel),
+  );
   public visible = false;
   public maximized = false;
   public canMinimize = false;

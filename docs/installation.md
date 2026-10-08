@@ -5,7 +5,9 @@ title: Installation
 
 # 💻 Installation
 
-Grab the latest build from the [Releases](https://github.com/Luden02/OrbitPS2-Manager/releases) page.
+Grab the latest stable build from the [Releases](https://github.com/Luden02/OrbitPS2-Manager/releases) page.
+
+**Nightly** is a pre-release of `main`, published on every push: [Nightly](https://github.com/Luden02/OrbitPS2-Manager/releases/tag/nightly-rc). It installs beside the stable app as OrbitPS2Manager Nightly. Unsigned-install notes below still apply. The in-app update check skips this pre-release and follows stable releases.
 
 On Arch Linux you can also use the [AUR binary](https://aur.archlinux.org/packages/orbitopl-toolbox-bin) or [AUR git](https://aur.archlinux.org/packages/orbitopl-toolbox-git) packages (thanks to u/m0tic).
 

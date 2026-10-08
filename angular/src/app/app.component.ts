@@ -2,7 +2,7 @@ import { Component, isDevMode } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { LogsService } from './shared/services/logs.service';
 import { BuildInfo } from './shared/build-info';
-import { getBuildChannel, getBuildChannelLabel } from './shared/build-channel';
+import { getBuildChannelLabel, resolveBuildChannel, versionBadge } from './shared/build-channel';
 import { LibraryService } from './shared/services/library.service';
 import { AsyncPipe } from '@angular/common';
 import { LucideAngularModule } from 'lucide-angular';
@@ -27,9 +27,9 @@ import { ThemeService } from './shared/services/theme.service';
 })
 export class AppComponent {
   public currentDirectory = 'None';
-  public readonly version = BuildInfo.version;
-  public readonly buildChannel = getBuildChannel(BuildInfo.version, isDevMode());
+  public readonly buildChannel = resolveBuildChannel(BuildInfo.version, isDevMode(), BuildInfo.channel);
   public readonly buildChannelLabel = this.buildChannel ? getBuildChannelLabel(this.buildChannel) : null;
+  public readonly versionLabel = versionBadge(BuildInfo.version, this.buildChannel);
   constructor(
     private readonly _logger: LogsService,
     public readonly _libraryService: LibraryService,

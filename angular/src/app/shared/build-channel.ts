@@ -32,6 +32,24 @@ export function getBuildChannel(version: string, isDevMode: boolean): BuildChann
   return isDevMode ? 'dev' : null;
 }
 
+/** Nightly CI sets an explicit channel and leaves package.json version alone. */
+export function resolveBuildChannel(
+  version: string,
+  isDevMode: boolean,
+  explicit: string | null | undefined,
+): BuildChannel | null {
+  if (explicit && explicit in CHANNEL_LABELS && explicit !== 'dev') {
+    return explicit as BuildChannel;
+  }
+  return getBuildChannel(version, isDevMode);
+}
+
+/** Nightly builds are labeled "Nightly". Every other build keeps its version. */
+export function versionBadge(version: string, channel: BuildChannel | null): string {
+  if (channel === 'nightly') return 'Nightly';
+  return `v${version}`;
+}
+
 export function getBuildChannelLabel(channel: BuildChannel): string {
   return CHANNEL_LABELS[channel];
 }

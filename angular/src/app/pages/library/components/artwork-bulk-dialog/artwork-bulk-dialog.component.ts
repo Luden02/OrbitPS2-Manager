@@ -14,7 +14,11 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { LucideAngularModule } from 'lucide-angular';
 import { LibraryService } from '@shared/services/library.service';
-import { KNOWN_ART_TYPES, artTypeLabel } from '@shared/constants/artwork-presets';
+import {
+  KNOWN_ART_TYPES,
+  artSaveNamesForSelection,
+  artTypeLabel,
+} from '@shared/constants/artwork-presets';
 import {
   ImportJob,
   JobLogEntry,
@@ -365,6 +369,11 @@ export class ArtworkBulkDialogComponent implements OnInit {
   }
 
   private enqueueTargets(targets: ArtTarget[]) {
+    // Indexed database codes (SCR_05, BG_02) must be written under the slot
+    // names OPL/RiptOPL read (SCR, SCR2, BG), same as the single-game wizard.
+    const artSaveAsOverrides = Object.fromEntries(
+      artSaveNamesForSelection(this.artTypes()),
+    );
     const created = this._jobs.enqueue(
       targets.map((t) => ({
         type: 'artwork' as const,
@@ -379,6 +388,7 @@ export class ArtworkBulkDialogComponent implements OnInit {
         canonicalName: t.canonicalName,
         overwrite: this.overwrite(),
         artTypes: [...this.artTypes()],
+        artSaveAsOverrides,
         wideSlotFallback: true,
       })),
     );

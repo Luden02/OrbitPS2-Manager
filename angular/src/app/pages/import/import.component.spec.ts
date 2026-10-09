@@ -1,4 +1,6 @@
+import { importProvidersFrom } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { LucideAngularModule, icons } from 'lucide-angular';
 
 import { ImportComponent } from './import.component';
 
@@ -8,7 +10,8 @@ describe('ImportComponent', () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [ImportComponent]
+      imports: [ImportComponent],
+      providers: [importProvidersFrom(LucideAngularModule.pick(icons))],
     })
     .compileComponents();
 

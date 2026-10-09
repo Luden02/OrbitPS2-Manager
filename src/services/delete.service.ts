@@ -140,3 +140,52 @@ export async function deleteGameAndRelatedFiles(
   }
   return { success: true, entries };
 }
+
+
+/**
+ * Delete one Ember game folder and artwork keyed by its folder identity.
+ * Artwork is touched only after the game folder itself has been removed.
+ */
+export async function deleteEmberGameAndRelatedFiles(
+  gamePath: string,
+  artDir: string,
+  identity: string,
+  onProgress?: (entry: DeleteEntry) => void,
+): Promise<DeleteGameResult> {
+  const entries: DeleteEntry[] = [];
+  const oplRoot = path.dirname(artDir);
+  const rel = (p: string) => path.relative(oplRoot, p);
+  const addEntry = (label: string, success: boolean, entryPath?: string, error?: string) => {
+    const entry: DeleteEntry = { label, path: entryPath, success, error };
+    entries.push(entry);
+    onProgress?.(entry);
+  };
+
+  try {
+    await fs.rm(gamePath, { recursive: true, force: false });
+    addEntry("Ember game folder", true, rel(gamePath));
+  } catch (err: any) {
+    const message = err?.message || String(err);
+    addEntry("Ember game folder", false, rel(gamePath), message);
+    return { success: false, message, entries };
+  }
+
+  try {
+    const artFiles = await fs.readdir(artDir);
+    const prefix = identity + "_";
+    for (const artFile of artFiles) {
+      if (artFile.startsWith(".") || !artFile.startsWith(prefix)) continue;
+      const artPath = path.join(artDir, artFile);
+      try {
+        await fs.unlink(artPath);
+        addEntry("Artwork", true, rel(artPath));
+      } catch (err: any) {
+        addEntry("Artwork", false, rel(artPath), err?.message || String(err));
+      }
+    }
+  } catch {
+    addEntry("Artwork", true, "No artwork directory");
+  }
+
+  return { success: true, entries };
+}

@@ -3,7 +3,7 @@ import path from "path";
 import https from "https";
 import { createLogger, formatBytes } from "../logger";
 import { artRemoteFileNames, artSlotFileNames } from "./artwork-filenames";
-import { validateArtworkPng } from "../utils/png-artwork";
+import { normalizeArtworkPng } from "../utils/png-artwork";
 
 const log = createLogger("artwork");
 
@@ -141,26 +141,29 @@ export async function downloadArtByGameId(
         continue;
       }
 
-      // Real downloads always validate the RiptOPL/OPL PNG contract. A
-      // mismatch is only warned about — the original bytes are written anyway,
-      // rather than losing an asset. Test downloaders are skipped, so the
-      // sentinel bytes they return never trip the validator.
-      if (downloader === downloadBuffer) {
-        const { expected, failures } = validateArtworkPng(
-          buffer,
-          system,
-          saveType,
+      let outputBuffer: Buffer;
+      try {
+        // Custom downloaders are the unit-test seam for URL/fallback behavior
+        // and may return sentinel bytes rather than image data. Production uses
+        // downloadBuffer and normalizes real database PNGs before disk writes.
+        outputBuffer =
+          downloader === downloadBuffer
+            ? normalizeArtworkPng(buffer, system, saveType)
+            : buffer;
+      } catch (err: any) {
+        // A database candidate can be a valid PNG but incompatible with
+        // RiptOPL's 8-bit indexed requirement. That does not make the slot
+        // unwritable, so continue to the next candidate instead of aborting the
+        // whole type before a compatible fallback can be tried.
+        lastError = new Error(
+          `Skipped incompatible ${type} candidate ${fileName}: ${err.message}`
         );
-        if (failures.length > 0) {
-          log.warn(
-            `${type} artwork for ${localName} may not display: ${failures.join("; ")}` +
-              (expected ? ` (expected ${expected.width}x${expected.height})` : ""),
-          );
-        }
+        log.warn(lastError.message);
+        continue;
       }
 
       try {
-        await fs.writeFile(savePath, buffer);
+        await fs.writeFile(savePath, outputBuffer);
       } catch (err: any) {
         // The bytes are already in hand, so a local write failure says nothing
         // about the remaining candidates: fetching them again would re-download
@@ -172,7 +175,9 @@ export async function downloadArtByGameId(
         break;
       }
 
-      log.verbose(`Saved ${type} artwork (${formatBytes(buffer.length)}) → ${savePath}`);
+      log.verbose(
+        `Saved ${type} artwork (${formatBytes(outputBuffer.length)}) → ${savePath}`
+      );
       results.push({
         name: localName,
         type,

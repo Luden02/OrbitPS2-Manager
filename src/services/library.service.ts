@@ -180,6 +180,7 @@ export async function getEmberGames(emberPath: string) {
       cuePath: string;
       gameId?: string;
       gameName?: string;
+      identificationStatus?: "identified" | "ambiguous" | "unidentified";
       sizeBytes: number;
       message?: string;
     }> = [];
@@ -205,6 +206,7 @@ export async function getEmberGames(emberPath: string) {
         cuePath,
         gameId: resolved?.success ? resolved.gameId : undefined,
         gameName: resolved?.success ? resolved.gameName : undefined,
+        identificationStatus: resolved?.identificationStatus,
         sizeBytes: await directorySize(gameFolder),
         ...(!resolved?.success ? { message: resolved?.message || "Could not identify PS1 disc." } : {}),
       });

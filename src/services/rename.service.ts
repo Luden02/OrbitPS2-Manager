@@ -80,16 +80,32 @@ async function renameMatchingCoverArt(
     const ext = path.extname(name);
     if (!/^\.(png|jpe?g)$/i.test(ext)) continue;
     const baseName = name.slice(0, -ext.length);
-    const lastUnderscore = baseName.lastIndexOf("_");
-    if (lastUnderscore < 0) continue;
-    const nameBeforeType = baseName.slice(0, lastUnderscore);
-    const type = baseName.slice(lastUnderscore + 1);
-    if (!matches(nameBeforeType)) continue;
+    const parsed = parseArtworkBaseName(baseName);
+    if (!parsed || !matches(parsed.identity)) continue;
 
-    const newName = `${newBaseName}_${type}${ext}`;
+    const targetType = parsed.type;
+    const newName = `${newBaseName}_${targetType}${ext}`;
     if (newName === name) continue;
+
+    const sourcePath = path.join(artDir, name);
+    const targetPath = path.join(artDir, newName);
+    const caseOnly =
+      sourcePath !== targetPath &&
+      sourcePath.toLocaleLowerCase() === targetPath.toLocaleLowerCase();
+    if (!caseOnly) {
+      try {
+        await fs.access(targetPath);
+        log.warn(
+          `Artwork target already exists, keeping both files: ${newName} (source ${name} left in place)`
+        );
+        continue;
+      } catch {
+        // Target is free.
+      }
+    }
+
     try {
-      await fs.rename(path.join(artDir, name), path.join(artDir, newName));
+      await renameCaseAware(sourcePath, targetPath, "cover-art");
       log.verbose(`Renamed artwork: ${name} → ${newName}`);
       renamed++;
     } catch (err: unknown) {
@@ -103,6 +119,55 @@ async function renameMatchingCoverArt(
     log.info(`Renamed ${renamed} artwork file(s) in ${artDir} to "${newBaseName}_*"`);
   }
   return renamed;
+}
+
+async function copyMatchingCoverArt(
+  artDir: string,
+  matches: (nameBeforeType: string) => boolean,
+  newBaseName: string,
+): Promise<number> {
+  let entries: string[];
+  try {
+    entries = await fs.readdir(artDir);
+  } catch {
+    return 0;
+  }
+
+  let copied = 0;
+  for (const name of entries) {
+    if (name.startsWith(".")) continue;
+    const ext = path.extname(name);
+    if (!/^\.(png|jpe?g)$/i.test(ext)) continue;
+    const baseName = name.slice(0, -ext.length);
+    const parsed = parseArtworkBaseName(baseName);
+    if (!parsed || !matches(parsed.identity)) continue;
+
+    const targetType = parsed.type;
+    const targetName = `${newBaseName}_${targetType}${ext}`;
+    if (targetName.toLocaleLowerCase() === name.toLocaleLowerCase()) continue;
+
+    const sourcePath = path.join(artDir, name);
+    const targetPath = path.join(artDir, targetName);
+    try {
+      await fs.access(targetPath);
+      log.verbose(`Artwork copy target already exists, keeping it: ${targetName}`);
+      continue;
+    } catch {
+      // Missing target is expected; create it below.
+    }
+
+    try {
+      await fs.copyFile(sourcePath, targetPath);
+      log.verbose(`Copied artwork: ${name} → ${targetName}`);
+      copied++;
+    } catch (err: unknown) {
+      log.warn(
+        `Failed to copy artwork ${name} → ${targetName}: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  }
+
+  return copied;
 }
 
 interface ArtworkRenameOperation {
@@ -123,7 +188,8 @@ interface ArtworkRenameOperation {
  */
 async function planMatchingCoverArtRenames(
   artDir: string,
-  matches: (nameBeforeType: string) => boolean,
+  primaryMatches: (nameBeforeType: string) => boolean,
+  fallbackMatches: (nameBeforeType: string) => boolean,
   newBaseName: string,
 ): Promise<{ operations: ArtworkRenameOperation[]; message?: string }> {
   let entries: string[];
@@ -148,16 +214,38 @@ async function planMatchingCoverArtRenames(
   const imageEntries = entries.filter((name) =>
     /^\.(png|jpe?g)$/i.test(path.extname(name))
   );
-  const plannedLogicalTargets = new Map<string, string>();
+  const classify = (name: string): "primary" | "fallback" | null => {
+    const ext = path.extname(name);
+    const parsed = parseArtworkBaseName(name.slice(0, -ext.length));
+    if (!parsed) return null;
+    if (primaryMatches(parsed.identity)) return "primary";
+    if (fallbackMatches(parsed.identity)) return "fallback";
+    return null;
+  };
+
+  const plannedLogicalTargets = new Map<
+    string,
+    { sourceName: string; kind: "primary" | "fallback" }
+  >();
   const operations: ArtworkRenameOperation[] = [];
 
-  for (const name of imageEntries) {
+  // Plan primary storage-identity artwork first. GameID-keyed files are
+  // fallbacks and must never block or overwrite an already-populated slot.
+  const ordered = [
+    ...imageEntries.filter((name) => classify(name) === "primary"),
+    ...imageEntries.filter((name) => classify(name) === "fallback"),
+  ];
+
+  for (const name of ordered) {
     if (name.startsWith(".")) continue;
+
+    const kind = classify(name);
+    if (!kind) continue;
 
     const ext = path.extname(name);
     const baseName = name.slice(0, -ext.length);
     const parsed = parseArtworkBaseName(baseName);
-    if (!parsed || !matches(parsed.identity)) continue;
+    if (!parsed) continue;
 
     const targetType = parsed.type;
     const targetName = newBaseName + "_" + targetType + ext;
@@ -166,26 +254,45 @@ async function planMatchingCoverArtRenames(
     const sourceLower = name.toLocaleLowerCase();
     const targetLogicalKey = path.parse(targetName).name.toLocaleLowerCase();
 
-    const duplicatePlannedSource = plannedLogicalTargets.get(targetLogicalKey);
-    if (duplicatePlannedSource && duplicatePlannedSource !== name) {
-      return {
-        operations: [],
-        message:
-          'Cannot normalize artwork because both "' +
-          duplicatePlannedSource +
-          '" and "' +
-          name +
-          '" would become the same "' +
-          path.parse(targetName).name +
-          '" artwork slot.',
-      };
+    const duplicatePlanned = plannedLogicalTargets.get(targetLogicalKey);
+    if (duplicatePlanned) {
+      if (kind === "fallback" || duplicatePlanned.kind === "primary") {
+        if (kind === "fallback") {
+          log.verbose(
+            `Skipping fallback artwork ${name}; ${duplicatePlanned.sourceName} already fills ${targetName}`
+          );
+          continue;
+        }
+        return {
+          operations: [],
+          message:
+            'Cannot normalize artwork because both "' +
+            duplicatePlanned.sourceName +
+            '" and "' +
+            name +
+            '" would become the same "' +
+            path.parse(targetName).name +
+            '" artwork slot.',
+        };
+      }
     }
 
     const existingCollision = imageEntries.find((existing) => {
       if (existing.toLocaleLowerCase() === sourceLower) return false;
-      return path.parse(existing).name.toLocaleLowerCase() === targetLogicalKey;
+      if (path.parse(existing).name.toLocaleLowerCase() !== targetLogicalKey) {
+        return false;
+      }
+      // A leftover GameID-keyed file is a fallback, not a blocker for the
+      // storage-identity file that owns the slot.
+      return classify(existing) !== "fallback";
     });
     if (existingCollision) {
+      if (kind === "fallback") {
+        log.verbose(
+          `Skipping fallback artwork ${name}; ${existingCollision} already occupies ${targetName}`
+        );
+        continue;
+      }
       return {
         operations: [],
         message:
@@ -197,7 +304,7 @@ async function planMatchingCoverArtRenames(
       };
     }
 
-    plannedLogicalTargets.set(targetLogicalKey, name);
+    plannedLogicalTargets.set(targetLogicalKey, { sourceName: name, kind });
     operations.push({
       sourcePath: path.join(artDir, name),
       targetPath: path.join(artDir, targetName),
@@ -629,13 +736,9 @@ export async function normalizeRiptOplPs1Storage(params: {
   // duplicate old-name/GameID art that would collapse onto the same slot.
   const artworkPlan = await planMatchingCoverArtRenames(
     params.artDir,
-    (nameBeforeType) => {
-      const upper = nameBeforeType.toUpperCase();
-      return (
-        upper === currentUpper ||
-        (!!gameIdUpper && upper === gameIdUpper)
-      );
-    },
+    (nameBeforeType) => nameBeforeType.toUpperCase() === currentUpper,
+    (nameBeforeType) =>
+      !!gameIdUpper && nameBeforeType.toUpperCase() === gameIdUpper,
     safeTitle,
   );
   if (artworkPlan.message) {
@@ -837,7 +940,7 @@ export async function normalizeRiptOplPs1Storage(params: {
     log.info(
       "Renamed " +
         artworkResult.renamed +
-        " artwork file(s) in " +
+        ' artwork file(s) in ' +
         params.artDir +
         ' to "' +
         safeTitle +
@@ -915,14 +1018,29 @@ export async function convertPs1LauncherToPopsLoader(
     return { success: false, newVcdPath, message: msg };
   }
 
-  onProgress?.(88, "Renaming cover art to match the new filename…");
-  const gameIdUpper = gameId.toUpperCase();
-  await renameMatchingCoverArt(
-    path.join(oplRoot, "ART"),
-    (nameBeforeType) => nameBeforeType.toUpperCase().includes(gameIdUpper),
+  onProgress?.(88, "Renaming VCD artwork to match the new filename…");
+  const artDir = path.join(oplRoot, "ART");
+  const oldVcdStem = vcdBasename.slice(0, -vcdExt.length);
+  const oldVcdStemLower = oldVcdStem.toLowerCase();
+  const renamedVcdArt = await renameMatchingCoverArt(
+    artDir,
+    (nameBeforeType) => nameBeforeType.toLowerCase() === oldVcdStemLower,
     targetTitle,
     onProgress,
   );
+
+  // Older layouts may only have the strict GameID fallback file. Use it only
+  // when no exact VCD-stem art was available; launcher ELF art is deliberately
+  // not folded in because it is a separate Apps identity and may be customized.
+  if (renamedVcdArt === 0) {
+    const gameIdLower = gameId.toLowerCase();
+    await renameMatchingCoverArt(
+      artDir,
+      (nameBeforeType) => nameBeforeType.toLowerCase() === gameIdLower,
+      targetTitle,
+      onProgress,
+    );
+  }
 
   onProgress?.(PROGRESS_DONE, "Conversion complete");
   log.info(`PS1 convert-to-POPSLoader complete: "${vcdBasename}" → "${newVcdBasename}"`);
@@ -932,8 +1050,8 @@ export async function convertPs1LauncherToPopsLoader(
 /**
  * Reverses `convertPs1LauncherToPopsLoader`: prefixes the VCD filename with
  * "<GameID>.", recreates the APPS/POPStarter launcher (POPSTARTER.ELF +
- * title.cfg), and renames any matching ART/ files from the "<Title>_TYPE.png"
- * convention to the "<ELF filename>_TYPE.png" convention POPStarter expects.
+ * title.cfg), moves VCD artwork to the new VCD-stem identity, and duplicates
+ * that artwork under the full launcher ELF filename for the Apps row.
  */
 export async function convertPs1LauncherToPopstarter(
   vcdPath: string,
@@ -1006,13 +1124,20 @@ export async function convertPs1LauncherToPopstarter(
     return { success: false, newVcdPath, message: msg };
   }
 
-  onProgress?.(88, "Renaming cover art to match the new launcher…");
-  const safeTitleLower = safeTitle.toLowerCase();
+  onProgress?.(88, "Updating VCD and launcher artwork identities…");
+  const artDir = path.join(oplRoot, "ART");
+  const oldTitleLower = title.toLowerCase();
   await renameMatchingCoverArt(
-    path.join(oplRoot, "ART"),
-    (nameBeforeType) => nameBeforeType.toLowerCase() === safeTitleLower,
-    elfFilename,
+    artDir,
+    (nameBeforeType) => nameBeforeType.toLowerCase() === oldTitleLower,
+    newVcdStem,
     onProgress,
+  );
+  const newVcdStemLower = newVcdStem.toLowerCase();
+  await copyMatchingCoverArt(
+    artDir,
+    (nameBeforeType) => nameBeforeType.toLowerCase() === newVcdStemLower,
+    elfFilename,
   );
 
   onProgress?.(PROGRESS_DONE, "Conversion complete");

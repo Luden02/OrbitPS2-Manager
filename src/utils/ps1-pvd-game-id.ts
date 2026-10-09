@@ -138,8 +138,19 @@ const PS1_PVD_TIMESTAMP_TO_GAME_ID: Readonly<Record<string, string>> =
   "1995103122331500": "SCPS_100.16",
   });
 
+const PS1_PVD_TIMESTAMP_TO_DISC_TITLE: Readonly<Record<string, string>> =
+  Object.freeze({
+    "1995060504013600": "CYBERWAR - DISC 1",
+    "1995060319142200": "CYBERWAR - DISC 2",
+    "1995060402110800": "CYBERWAR - DISC 3",
+  });
+
 export function lookupPs1GameIdByPvdTimestamp(
   timestamp: string,
 ): string | null {
   return PS1_PVD_TIMESTAMP_TO_GAME_ID[timestamp] ?? null;
+}
+
+export function ps1PvdDiscTitle(timestamp: string): string | null {
+  return PS1_PVD_TIMESTAMP_TO_DISC_TITLE[timestamp] ?? null;
 }

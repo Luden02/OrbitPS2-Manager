@@ -3,8 +3,8 @@ import { LogsService } from './logs.service';
 import { SettingsService } from './settings.service';
 import { BehaviorSubject, map, Observable } from 'rxjs';
 import { Game, GameFormat, Ps1LauncherInfo, RawGameFile, gameArt } from '../types/game.type';
-import { ps1ArtworkIdentities } from '../utils/ps1-artwork-identities';
 import { sanitizeGameFilename } from '../utils/sanitize-game-filename';
+import { ps1ArtworkIdentities } from '../utils/ps1-artwork-identities';
 
 @Injectable({
   providedIn: 'root',
@@ -264,9 +264,6 @@ export class LibraryService {
     const sep = oplRoot.includes('\\') ? '\\' : '/';
     const rootEmber = `${oplRoot.replace(/[\\/]$/, '')}${sep}EMBER`;
     const rootGames = `${rootEmber}${sep}games`;
-    if (await window.libraryAPI.directoryExists(rootGames).catch(() => false)) {
-      return rootEmber;
-    }
 
     const settings = await this._settings.load();
     const configured = settings.emberDirectories?.[oplRoot];
@@ -275,6 +272,9 @@ export class LibraryService {
       (await window.libraryAPI.directoryExists(configured).catch(() => false))
     ) {
       return configured;
+    }
+    if (await window.libraryAPI.directoryExists(rootGames).catch(() => false)) {
+      return rootEmber;
     }
     return undefined;
   }
@@ -566,6 +566,39 @@ export class LibraryService {
     }));
   }
 
+  private parseEmberToLibrary(
+    entries: Array<{
+      folderName: string;
+      path: string;
+      cuePath: string;
+      gameId?: string;
+      gameName?: string;
+      identificationStatus?: Game['identificationStatus'];
+      sizeBytes: number;
+    }>
+  ): Game[] {
+    return entries.map((entry) => ({
+      filename: entry.folderName,
+      title: entry.gameName || entry.folderName,
+      canonicalTitle:
+        entry.identificationStatus === 'identified' && entry.gameName
+          ? sanitizeGameFilename(entry.gameName)
+          : undefined,
+      identificationStatus: entry.identificationStatus,
+      cdType: 'EMBER',
+      gameId: entry.gameId || '',
+      region: entry.gameId ? this.mapGameIdToRegion(entry.gameId) : 'UNKNOWN',
+      path: entry.path,
+      extension: 'CUE',
+      parentPath: entry.path.replace(/[\\/][^\\/]+$/, ''),
+      format: 'EMBER' as GameFormat,
+      system: 'PS1' as const,
+      emberFolder: entry.folderName,
+      emberCuePath: entry.cuePath,
+      size: this.formatFileSize(entry.sizeBytes) || '??',
+    }));
+  }
+
   /**
    * Resolve a single disc-image file to a Game with optional PS1 launcher link.
    * Returns null if the file is invalid or its game ID can't be resolved.
@@ -590,6 +623,7 @@ export class LibraryService {
     let gameId: string;
     let title: string;
     let canonicalTitle: string | undefined;
+    let identificationStatus: Game['identificationStatus'];
     let ps1Launcher: Ps1LauncherInfo | undefined;
 
     if (gameIdMatch) {
@@ -608,18 +642,32 @@ export class LibraryService {
       if (ps1LauncherMap) {
         ps1Launcher = ps1LauncherMap.get(file.name.toLowerCase());
       }
-      if (ps1Launcher?.gameId) {
+
+      // Disc contents are authoritative. A launcher GameID is only a fallback
+      // for images Orbit cannot resolve, never the source of canonical naming.
+      this.setCurrentAction(`Resolving VCD ${file.name}…`);
+      const resolved = await window.libraryAPI.tryDeterminePs1GameIdFromVcd(file.path);
+      identificationStatus = resolved?.identificationStatus;
+      if (resolved?.success && resolved.gameId) {
+        gameId = resolved.gameId;
+        canonicalTitle =
+          resolved.identificationStatus === 'identified' && resolved.gameName
+            ? sanitizeGameFilename(resolved.gameName)
+            : undefined;
+        title =
+          resolved.identificationStatus === 'identified' && resolved.gameName
+            ? resolved.gameName
+            : file.name;
+      } else if (ps1Launcher?.gameId) {
         gameId = ps1Launcher.gameId;
         title = file.name;
+        identificationStatus = 'unidentified';
       } else {
-        this.setCurrentAction(`Resolving VCD ${file.name}…`);
-        const resolved = await window.libraryAPI.tryDeterminePs1GameIdFromVcd(file.path);
-        if (!resolved?.success || !resolved.gameId) return null;
-        gameId = resolved.gameId;
-        canonicalTitle = resolved.gameName
-          ? sanitizeGameFilename(resolved.gameName)
-          : undefined;
-        title = resolved.gameName || file.name;
+        // Keep unidentified VCDs visible for manual management. Their
+        // filenames are storage identities, never proof of disc identity.
+        gameId = '';
+        title = file.name;
+        identificationStatus = resolved?.identificationStatus ?? 'unidentified';
       }
     }
 
@@ -627,12 +675,16 @@ export class LibraryService {
     // itself so a user-supplied filename never overrides the actual PS1 ID.
     if (ext === '.vcd' && gameIdMatch) {
       const resolved = await window.libraryAPI.tryDeterminePs1GameIdFromVcd(file.path);
+      identificationStatus = resolved?.identificationStatus;
       if (resolved?.success && resolved.gameId) {
         gameId = resolved.gameId;
-        canonicalTitle = resolved.gameName
-          ? sanitizeGameFilename(resolved.gameName)
-          : undefined;
-        title = resolved.gameName || title;
+        canonicalTitle =
+          resolved.identificationStatus === 'identified' && resolved.gameName
+            ? sanitizeGameFilename(resolved.gameName)
+            : undefined;
+        if (resolved.identificationStatus === 'identified' && resolved.gameName) {
+          title = resolved.gameName;
+        }
       }
     }
 
@@ -646,7 +698,7 @@ export class LibraryService {
       title,
       cdType: hasLauncher ? 'APPS' : isPops ? 'POPS' : dirName,
       gameId,
-      region: this.mapGameIdToRegion(gameId),
+      region: gameId ? this.mapGameIdToRegion(gameId) : 'UNKNOWN',
       path: file.path,
       extension: file.extension,
       parentPath: file.parentPath,
@@ -654,6 +706,7 @@ export class LibraryService {
       system: hasLauncher ? 'APPS' : isPops || isVcd ? 'PS1' : 'PS2',
       size: this.formatFileSize(file.stats!.size) || '??',
       canonicalTitle,
+      identificationStatus,
     };
 
     if (hasLauncher) {
@@ -667,36 +720,6 @@ export class LibraryService {
     }
 
     return gameEntry;
-  }
-
-  private parseEmberToLibrary(
-    entries: Array<{
-      folderName: string;
-      path: string;
-      cuePath: string;
-      gameId?: string;
-      gameName?: string;
-      sizeBytes: number;
-    }>
-  ): Game[] {
-    return entries.map((entry) => ({
-      filename: entry.folderName,
-      title: entry.gameName || entry.folderName,
-      canonicalTitle: entry.gameName
-        ? sanitizeGameFilename(entry.gameName)
-        : undefined,
-      cdType: 'EMBER',
-      gameId: entry.gameId || '',
-      region: entry.gameId ? this.mapGameIdToRegion(entry.gameId) : 'UNKNOWN',
-      path: entry.path,
-      extension: 'CUE',
-      parentPath: entry.path.replace(/[\\/][^\\/]+$/, ''),
-      format: 'EMBER' as GameFormat,
-      system: 'PS1' as const,
-      emberFolder: entry.folderName,
-      emberCuePath: entry.cuePath,
-      size: this.formatFileSize(entry.sizeBytes) || '??',
-    }));
   }
 
   /**
@@ -719,13 +742,9 @@ export class LibraryService {
           (art: gameArt) => art.gameId === game.filename,
         );
       } else if (game.system === 'PS1') {
-        // POPSLoader/RiptOPL VCDs and Ember folders: RiptOPL reads art by the
-        // on-disk storage name, so those names are authoritative. GameID-named
-        // art only counts when the VCD was itself named after the disc ID —
-        // otherwise it is invisible to RiptOPL and must not show as present.
-        const acceptedNames = new Set(ps1ArtworkIdentities(game));
-        game.art = artFiles.filter((art: gameArt) =>
-          acceptedNames.has(art.gameId),
+        const accepted = new Set(ps1ArtworkIdentities(game));
+        game.art = artFiles.filter(
+          (art: gameArt) => accepted.has(art.gameId),
         );
       } else {
         game.art = artFiles.filter(
@@ -833,13 +852,17 @@ export class LibraryService {
             .map((art: gameArt) => art),
         };
       }
-      if (game.system === 'PS1' && game.filename) {
-        const filenameNoExt = game.filename.replace(/\.[^./\\]+$/, '');
+      if (game.system === 'APPS' && game.filename) {
         return {
           ...game,
-          art: artFiles.filter(
-            (art: gameArt) => art.gameId === game.gameId || art.gameId === filenameNoExt,
-          ),
+          art: artFiles.filter((art: gameArt) => art.gameId === game.filename),
+        };
+      }
+      if (game.system === 'PS1') {
+        const accepted = new Set(ps1ArtworkIdentities(game));
+        return {
+          ...game,
+          art: artFiles.filter((art: gameArt) => accepted.has(art.gameId)),
         };
       }
       return {
@@ -1011,12 +1034,19 @@ export class LibraryService {
       const currentDir = this.currentDirectory ?? '';
       const sep = currentDir.includes('\\') ? '\\' : '/';
       const artDir = `${currentDir.replace(/[\\/]$/, '')}${sep}ART`;
-      const result = await window.libraryAPI.deleteGameAndRelatedFiles(
-        game.path,
-        artDir,
-        game.gameId,
-        game.appFolder
-      );
+      const result =
+        game.format === 'EMBER'
+          ? await window.libraryAPI.deleteEmberGameAndRelatedFiles(
+              game.path,
+              artDir,
+              game.emberFolder || game.filename,
+            )
+          : await window.libraryAPI.deleteGameAndRelatedFiles(
+              game.path,
+              artDir,
+              game.gameId,
+              game.appFolder
+            );
 
       if (result.success) {
         this._logger.log('deleteGame', `Successfully deleted ${game.gameId}`);

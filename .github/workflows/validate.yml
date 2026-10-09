@@ -1,0 +1,48 @@
+name: Validate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install backend dependencies
+        run: npm ci
+
+      - name: Build backend
+        run: npm run build
+
+      - name: Run backend tests
+        run: npm test
+
+      - name: Generate build info
+        run: npm run build:info
+
+      - name: Install Angular dependencies
+        working-directory: angular
+        run: npm ci --ignore-scripts
+
+      - name: Build Angular
+        working-directory: angular
+        run: npm run build
+
+      # ubuntu-latest ships Google Chrome; Karma drives it headless.
+      - name: Run Angular tests
+        working-directory: angular
+        run: npm test -- --watch=false --browsers=ChromeHeadless

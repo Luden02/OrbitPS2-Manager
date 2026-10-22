@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnDestroy, OnInit } from '@angular/core';
 import { LucideAngularModule } from 'lucide-angular';
 import { LibraryService } from '../../shared/services/library.service';
 import { JobsService, ImportJobType } from '../../shared/services/jobs.service';
@@ -14,6 +14,8 @@ interface StagedFile {
   invalid: boolean;
   identificationStatus?: 'identified' | 'ambiguous' | 'unidentified';
   message?: string;
+  /** True when `path` is a temp .iso ripped from a drive, not a user-picked file. */
+  isTempRip?: boolean;
 }
 
 @Component({
@@ -22,7 +24,7 @@ interface StagedFile {
   templateUrl: './import.component.html',
   styleUrl: './import.component.scss',
 })
-export class ImportComponent implements OnInit {
+export class ImportComponent implements OnInit, OnDestroy {
   constructor(
     public _libraryService: LibraryService,
     private _jobs: JobsService,
@@ -46,12 +48,29 @@ export class ImportComponent implements OnInit {
     }
   }
 
+  ngOnDestroy() {
+    // Any ripped-but-not-yet-imported temp .iso would otherwise sit orphaned
+    // on disk (several GB) once this page is left.
+    for (const f of this.staged) {
+      if (f.isTempRip) void window.libraryAPI.deleteTempDvdRip(f.path);
+    }
+  }
+
   setLauncherMode(mode: 'popstarter' | 'popsloader') {
     this.launcherMode = mode;
     void this._settings.set('ps1LauncherMode', mode);
   }
 
   staged: StagedFile[] = [];
+
+  // ── Import from drive (PS2 DVD only) ─────────────────
+  showDriveSelect = false;
+  drives: { device: string; label: string }[] = [];
+  selectedDevice = '';
+  customDevicePath = '';
+  ripping = false;
+  ripProgress: { percent: number; stage: string } | null = null;
+  ripError = '';
   scanning = false;
 
   get isGameCd(): boolean {
@@ -80,7 +99,59 @@ export class ImportComponent implements OnInit {
 
   setMode(mode: ImportJobType) {
     this.importMode = mode;
-    this.staged = [];
+    this.clearStaged();
+  }
+
+  async openDriveSelect() {
+    this.ripError = '';
+    this.selectedDevice = '';
+    this.customDevicePath = '';
+    this.drives = await window.libraryAPI.listOpticalDrives();
+    if (this.drives.length) {
+      this.selectedDevice = this.drives[0].device;
+    }
+    this.showDriveSelect = true;
+  }
+
+  cancelDriveSelect() {
+    this.showDriveSelect = false;
+  }
+
+  async startRip() {
+    const device = (this.selectedDevice || this.customDevicePath).trim();
+    const dirPath = this._libraryService.currentDirectoryValue;
+    if (!device || !dirPath) {
+      return;
+    }
+
+    this.ripError = '';
+    this.ripping = true;
+    this.ripProgress = { percent: 0, stage: 'Starting…' };
+    window.libraryAPI.onDvdRipProgress((p) => (this.ripProgress = p));
+
+    try {
+      const destDir = `${dirPath.replace(/[\\/]$/, '')}/DVD`;
+      const result = await window.libraryAPI.ripPs2DvdFromDrive(device, destDir);
+      if (!result?.success || !result.isoPath) {
+        this.ripError = result?.message || 'Failed to read the disc.';
+        return;
+      }
+
+      this.showDriveSelect = false;
+      this.scanning = true;
+      try {
+        const staged = await this.detectFile(result.isoPath);
+        staged.isTempRip = true;
+        staged.fileName = 'Ripped from drive';
+        this.staged = [...this.staged, staged];
+      } finally {
+        this.scanning = false;
+      }
+    } finally {
+      this.ripping = false;
+      this.ripProgress = null;
+      window.libraryAPI.removeAllDvdRipProgressListeners();
+    }
   }
 
   async addFiles() {
@@ -187,10 +258,19 @@ export class ImportComponent implements OnInit {
   }
 
   removeStaged(path: string) {
+    const entry = this.staged.find((f) => f.path === path);
+    if (entry?.isTempRip) {
+      void window.libraryAPI.deleteTempDvdRip(entry.path);
+    }
     this.staged = this.staged.filter((f) => f.path !== path);
   }
 
   clearStaged() {
+    for (const f of this.staged) {
+      if (f.isTempRip) {
+        void window.libraryAPI.deleteTempDvdRip(f.path);
+      }
+    }
     this.staged = [];
   }
 

@@ -220,13 +220,77 @@
           }
         </p>
 
-        <button class="btn btn-primary" (click)="addFiles()" [disabled]="scanning">
-          @if (scanning) {
-          <span class="loading loading-spinner loading-sm"></span> Scanning…
-          } @else {
-          <i-lucide name="file-search" size="18"></i-lucide> Add files…
+        <div class="flex flex-wrap gap-2">
+          <button class="btn btn-primary" (click)="addFiles()" [disabled]="scanning">
+            @if (scanning) {
+            <span class="loading loading-spinner loading-sm"></span> Scanning…
+            } @else {
+            <i-lucide name="file-search" size="18"></i-lucide> Add files…
+            }
+          </button>
+          @if (isGameDvd) {
+          <button class="btn btn-outline" (click)="openDriveSelect()" [disabled]="scanning || ripping">
+            <i-lucide name="disc" size="18"></i-lucide> Import from drive…
+          </button>
           }
-        </button>
+        </div>
+
+        @if (showDriveSelect) {
+        <div class="mt-3 rounded-md border border-base-content/10 bg-base-100/40 p-3">
+          @if (!ripping) {
+          <div class="flex flex-col gap-2">
+            @if (drives.length) {
+            <label class="text-xs text-base-content/55">Detected drive</label>
+            <select
+              class="select select-sm w-full"
+              [value]="selectedDevice"
+              (change)="selectedDevice = $any($event.target).value; customDevicePath = ''"
+            >
+              @for (drive of drives; track drive.device) {
+              <option [value]="drive.device">{{ drive.label }}</option>
+              }
+              <option value="">Custom device path…</option>
+            </select>
+            } @else {
+            <p class="text-xs text-base-content/55">
+              No optical drive auto-detected — enter the device path manually
+              (e.g. "D:" on Windows, "/dev/rdisk4" on macOS, "/dev/sr0" on Linux).
+            </p>
+            }
+            @if (!selectedDevice) {
+            <input
+              type="text"
+              class="input input-sm w-full"
+              placeholder="Device path"
+              [value]="customDevicePath"
+              (input)="customDevicePath = $any($event.target).value"
+            />
+            }
+            @if (ripError) {
+            <p class="text-xs text-error">{{ ripError }}</p>
+            }
+            <div class="flex justify-end gap-2">
+              <button class="btn btn-ghost btn-xs" (click)="cancelDriveSelect()">Cancel</button>
+              <button
+                class="btn btn-primary btn-xs"
+                (click)="startRip()"
+                [disabled]="!selectedDevice && !customDevicePath.trim()"
+              >
+                Read disc
+              </button>
+            </div>
+          </div>
+          } @else {
+          <div class="flex flex-col gap-2">
+            <div class="flex items-center gap-2 text-sm">
+              <span class="loading loading-spinner loading-sm"></span>
+              <span>{{ ripProgress?.stage || 'Reading disc…' }}</span>
+            </div>
+            <progress class="progress progress-primary w-full" [value]="ripProgress?.percent ?? 0" max="100"></progress>
+          </div>
+          }
+        </div>
+        }
 
         @if (staged.length) {
         <div class="mt-4 flex flex-col gap-2">

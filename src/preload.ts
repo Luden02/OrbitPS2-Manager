@@ -267,6 +267,21 @@ function buildLibraryAPI() {
     openAskElfFiles: () => ipcRenderer.invoke("open-ask-elf-files"),
     importApp: (oplRoot: string, elfPath: string, title: string) =>
       ipcRenderer.invoke("import-app", oplRoot, elfPath, title),
+    listOpticalDrives: () => ipcRenderer.invoke("list-optical-drives"),
+    ripPs2DvdFromDrive: (devicePath: string, destDir: string) =>
+      ipcRenderer.invoke("rip-ps2-dvd-from-drive", devicePath, destDir),
+    onDvdRipProgress: (
+      callback: (progress: { percent: number; stage: string }) => void
+    ) => {
+      ipcRenderer.on("dvd-rip-progress", (_event, progress) =>
+        callback(progress)
+      );
+    },
+    removeAllDvdRipProgressListeners: () => {
+      ipcRenderer.removeAllListeners("dvd-rip-progress");
+    },
+    deleteTempDvdRip: (isoPath: string) =>
+      ipcRenderer.invoke("delete-temp-dvd-rip", isoPath),
 
     // ── CFG ────────────────────────────────────────
     readGameCfg: (oplRoot: string, gameId: string) =>

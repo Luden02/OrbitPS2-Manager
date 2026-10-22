@@ -360,6 +360,28 @@ declare interface Window {
       title: string,
     ) => Promise<{ success: boolean; folder?: string; message?: string }>;
 
+    /** List optical (CD/DVD) drives detected on this machine, best-effort. */
+    listOpticalDrives: () => Promise<{ device: string; label: string }[]>;
+
+    /** Rip a PS2 DVD from an optical drive into a temp .iso under destDir. */
+    ripPs2DvdFromDrive: (
+      devicePath: string,
+      destDir: string,
+    ) => Promise<{ success: boolean; isoPath?: string; message?: string }>;
+
+    /** Listen for DVD rip progress events. */
+    onDvdRipProgress: (
+      callback: (progress: { percent: number; stage: string }) => void,
+    ) => void;
+
+    /** Remove all DVD rip progress listeners. */
+    removeAllDvdRipProgressListeners: () => void;
+
+    /** Delete a temp DVD rip file (only succeeds for our own temp naming). */
+    deleteTempDvdRip: (
+      isoPath: string,
+    ) => Promise<{ success: boolean; message?: string }>;
+
     /** Delete an APPS folder. */
     deleteApp: (
       oplRoot: string,

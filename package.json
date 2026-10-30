@@ -48,6 +48,9 @@
       "yauzl": "^3.0.0"
     }
   },
+  "redumper": {
+    "version": "b767"
+  },
   "build": {
     "productName": "OrbitPS2Manager",
     "files": [

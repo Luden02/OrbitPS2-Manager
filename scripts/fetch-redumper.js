@@ -2,14 +2,14 @@
 // resources/redumper/<platform>-<arch>/ so it can be picked up by
 // src/services/redumper.service.ts (dev) or scripts/after-pack.js (packaged).
 //
-// ponytail: pinned to one redumper release so builds stay reproducible;
-// bump REDUMPER_VERSION deliberately when picking up a newer redumper.
+// Pinned to one redumper release so builds stay reproducible; bump
+// package.json's "redumper".version deliberately to pick up a newer one.
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const AdmZip = require('adm-zip');
 
-const REDUMPER_VERSION = 'b767';
+const REDUMPER_VERSION = require('../package.json').redumper.version;
 const RESOURCES_DIR = path.join(__dirname, '..', 'resources', 'redumper');
 
 // Maps our short platform/arch args to redumper's release asset naming.
@@ -40,11 +40,15 @@ async function fetchRedumper(platform, arch) {
   const destDir = path.join(RESOURCES_DIR, `${PLATFORM_NAMES[platform]}-${arch}`);
   const binName = platform === 'win' ? 'redumper.exe' : 'redumper';
   const binPath = path.join(destDir, 'bin', binName);
+  const stampPath = path.join(destDir, '.version');
+  const stamped = fs.existsSync(stampPath) ? fs.readFileSync(stampPath, 'utf8').trim() : '';
 
-  if (fs.existsSync(binPath)) {
-    console.log(`[fetch-redumper] already present: ${binPath}`);
+  if (fs.existsSync(binPath) && stamped === REDUMPER_VERSION) {
+    console.log(`[fetch-redumper] already present (${REDUMPER_VERSION}): ${binPath}`);
     return;
   }
+  // Bumping the pin has to replace a previously fetched version, not keep it.
+  fs.rmSync(destDir, { recursive: true, force: true });
 
   const assetName = `redumper-${REDUMPER_VERSION}-${PLATFORM_NAMES[platform]}-${arch}.zip`;
   const url = `https://github.com/superg/redumper/releases/download/${REDUMPER_VERSION}/${assetName}`;
@@ -99,7 +103,8 @@ async function fetchRedumper(platform, arch) {
     }
   }
 
-  console.log(`[fetch-redumper] ready: ${binPath}`);
+  fs.writeFileSync(stampPath, REDUMPER_VERSION);
+  console.log(`[fetch-redumper] ready (${REDUMPER_VERSION}): ${binPath}`);
 }
 
 const { platform, arch } = parseArgs();

@@ -377,9 +377,24 @@ declare interface Window {
     /** Remove all DVD rip progress listeners. */
     removeAllDvdRipProgressListeners: () => void;
 
-    /** Delete a temp DVD rip file (only succeeds for our own temp naming). */
-    deleteTempDvdRip: (
-      isoPath: string,
+    /** List optical drives addressed the way the bundled redumper CLI expects. */
+    listOpticalDrivesForCd: () => Promise<{ device: string; label: string }[]>;
+
+    /** Rip a PS2 CD from an optical drive via the bundled redumper CLI into a temp .cue/.bin under destDir. */
+    ripPs2CdFromDrive: (
+      devicePath: string,
+      destDir: string,
+    ) => Promise<{ success: boolean; cuePath?: string; message?: string }>;
+
+    /** Listen for raw redumper output lines during a CD rip. */
+    onCdRipLine: (callback: (line: string) => void) => void;
+
+    /** Remove all CD rip line listeners. */
+    removeAllCdRipLineListeners: () => void;
+
+    /** Delete a temp disc rip file/cue (only succeeds for our own temp naming; also removes a cue's referenced bin(s)). */
+    deleteTempDiscRip: (
+      filePath: string,
     ) => Promise<{ success: boolean; message?: string }>;
 
     /** Delete an APPS folder. */

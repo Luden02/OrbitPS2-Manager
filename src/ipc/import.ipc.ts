@@ -4,9 +4,11 @@ import { importPs1Game } from "../services/ps1-import.service";
 import { importApp } from "../services/apps.service";
 import {
   listOpticalDrives,
+  listOpticalDrivesForCd,
   ripOpticalDvd,
   deleteTempRipFile,
 } from "../services/optical-drive.service";
+import { ripOpticalCd } from "../services/redumper.service";
 
 export function registerImportIpc(): void {
   ipcMain.handle(
@@ -79,7 +81,20 @@ export function registerImportIpc(): void {
     }
   );
 
-  ipcMain.handle("delete-temp-dvd-rip", async (_event, isoPath: string) => {
-    return deleteTempRipFile(isoPath);
+  ipcMain.handle("list-optical-drives-cd", async () => {
+    return listOpticalDrivesForCd();
+  });
+
+  ipcMain.handle(
+    "rip-ps2-cd-from-drive",
+    async (event, devicePath: string, destDir: string) => {
+      return ripOpticalCd(devicePath, destDir, (line) => {
+        event.sender.send("cd-rip-line", line);
+      });
+    }
+  );
+
+  ipcMain.handle("delete-temp-disc-rip", async (_event, filePath: string) => {
+    return deleteTempRipFile(filePath);
   });
 }

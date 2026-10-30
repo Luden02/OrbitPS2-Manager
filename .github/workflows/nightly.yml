@@ -42,12 +42,15 @@ jobs:
           - os: windows-latest
             args: --win
             extra: ""
+            redumper: node scripts/fetch-redumper.js --platform=win --arch=x64
           - os: macos-latest
             args: --mac --x64 --arm64
             extra: -c.mac.identity=null
+            redumper: node scripts/fetch-redumper.js --platform=mac --arch=x64 && node scripts/fetch-redumper.js --platform=mac --arch=arm64
           - os: ubuntu-latest
             args: --linux
             extra: ""
+            redumper: node scripts/fetch-redumper.js --platform=linux --arch=x64
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -69,6 +72,10 @@ jobs:
           ORBIT_CHANNEL: nightly
       - run: npm run build --prefix angular
       - run: npm run build
+      # electron-builder is invoked directly below, so the fetch that the
+      # package:* scripts do has to happen here or afterPack ships no redumper.
+      - name: Fetch redumper
+        run: ${{ matrix.redumper }}
       - name: Package
         run: |
           npx electron-builder ${{ matrix.args }} --publish never \

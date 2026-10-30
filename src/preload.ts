@@ -280,8 +280,17 @@ function buildLibraryAPI() {
     removeAllDvdRipProgressListeners: () => {
       ipcRenderer.removeAllListeners("dvd-rip-progress");
     },
-    deleteTempDvdRip: (isoPath: string) =>
-      ipcRenderer.invoke("delete-temp-dvd-rip", isoPath),
+    listOpticalDrivesForCd: () => ipcRenderer.invoke("list-optical-drives-cd"),
+    ripPs2CdFromDrive: (devicePath: string, destDir: string) =>
+      ipcRenderer.invoke("rip-ps2-cd-from-drive", devicePath, destDir),
+    onCdRipLine: (callback: (line: string) => void) => {
+      ipcRenderer.on("cd-rip-line", (_event, line) => callback(line));
+    },
+    removeAllCdRipLineListeners: () => {
+      ipcRenderer.removeAllListeners("cd-rip-line");
+    },
+    deleteTempDiscRip: (filePath: string) =>
+      ipcRenderer.invoke("delete-temp-disc-rip", filePath),
 
     // ── CFG ────────────────────────────────────────
     readGameCfg: (oplRoot: string, gameId: string) =>

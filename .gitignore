@@ -105,6 +105,9 @@ CLAUDE.md
 # Auto-generated build info
 angular/src/app/shared/build-info.ts
 
+# Bundled redumper binaries, fetched by scripts/fetch-redumper.js
+resources/redumper/
+
 # Jekyll (docs site)
 docs/_site/
 docs/.jekyll-cache/

@@ -52,7 +52,7 @@ export class ImportComponent implements OnInit, OnDestroy {
     // Any ripped-but-not-yet-imported temp .iso would otherwise sit orphaned
     // on disk (several GB) once this page is left.
     for (const f of this.staged) {
-      if (f.isTempRip) void window.libraryAPI.deleteTempDvdRip(f.path);
+      if (f.isTempRip) void window.libraryAPI.deleteTempDiscRip(f.path);
     }
   }
 
@@ -63,13 +63,16 @@ export class ImportComponent implements OnInit, OnDestroy {
 
   staged: StagedFile[] = [];
 
-  // ── Import from drive (PS2 DVD only) ─────────────────
+  // ── Import from drive (PS2 DVD/CD) ───────────────────
   showDriveSelect = false;
   drives: { device: string; label: string }[] = [];
   selectedDevice = '';
   customDevicePath = '';
   ripping = false;
+  /** DVD rip progress (percent-based). */
   ripProgress: { percent: number; stage: string } | null = null;
+  /** CD rip progress — redumper has no clean percentage, so raw output lines are shown live. */
+  ripLines: string[] = [];
   ripError = '';
   scanning = false;
 
@@ -106,7 +109,9 @@ export class ImportComponent implements OnInit, OnDestroy {
     this.ripError = '';
     this.selectedDevice = '';
     this.customDevicePath = '';
-    this.drives = await window.libraryAPI.listOpticalDrives();
+    this.drives = this.isGameCd
+      ? await window.libraryAPI.listOpticalDrivesForCd()
+      : await window.libraryAPI.listOpticalDrives();
     if (this.drives.length) {
       this.selectedDevice = this.drives[0].device;
     }
@@ -127,20 +132,21 @@ export class ImportComponent implements OnInit, OnDestroy {
     this.ripError = '';
     this.ripping = true;
     this.ripProgress = { percent: 0, stage: 'Starting…' };
-    window.libraryAPI.onDvdRipProgress((p) => (this.ripProgress = p));
+    this.ripLines = [];
 
     try {
-      const destDir = `${dirPath.replace(/[\\/]$/, '')}/DVD`;
-      const result = await window.libraryAPI.ripPs2DvdFromDrive(device, destDir);
-      if (!result?.success || !result.isoPath) {
-        this.ripError = result?.message || 'Failed to read the disc.';
+      const destDir = `${dirPath.replace(/[\\/]$/, '')}/${this.isGameCd ? 'CD' : 'DVD'}`;
+      const outputPath = this.isGameCd
+        ? await this.runCdRip(device, destDir)
+        : await this.runDvdRip(device, destDir);
+      if (!outputPath) {
         return;
       }
 
       this.showDriveSelect = false;
       this.scanning = true;
       try {
-        const staged = await this.detectFile(result.isoPath);
+        const staged = await this.detectFile(outputPath);
         staged.isTempRip = true;
         staged.fileName = 'Ripped from drive';
         this.staged = [...this.staged, staged];
@@ -150,7 +156,36 @@ export class ImportComponent implements OnInit, OnDestroy {
     } finally {
       this.ripping = false;
       this.ripProgress = null;
+    }
+  }
+
+  /** Returns the ripped .iso path on success, or sets ripError and returns undefined. */
+  private async runDvdRip(device: string, destDir: string): Promise<string | undefined> {
+    window.libraryAPI.onDvdRipProgress((p) => (this.ripProgress = p));
+    try {
+      const result = await window.libraryAPI.ripPs2DvdFromDrive(device, destDir);
+      if (!result?.success || !result.isoPath) {
+        this.ripError = result?.message || 'Failed to read the disc.';
+        return undefined;
+      }
+      return result.isoPath;
+    } finally {
       window.libraryAPI.removeAllDvdRipProgressListeners();
+    }
+  }
+
+  /** Returns the ripped .cue path on success, or sets ripError and returns undefined. */
+  private async runCdRip(device: string, destDir: string): Promise<string | undefined> {
+    window.libraryAPI.onCdRipLine((line) => (this.ripLines = [...this.ripLines, line]));
+    try {
+      const result = await window.libraryAPI.ripPs2CdFromDrive(device, destDir);
+      if (!result?.success || !result.cuePath) {
+        this.ripError = result?.message || 'Failed to read the disc.';
+        return undefined;
+      }
+      return result.cuePath;
+    } finally {
+      window.libraryAPI.removeAllCdRipLineListeners();
     }
   }
 
@@ -260,7 +295,7 @@ export class ImportComponent implements OnInit, OnDestroy {
   removeStaged(path: string) {
     const entry = this.staged.find((f) => f.path === path);
     if (entry?.isTempRip) {
-      void window.libraryAPI.deleteTempDvdRip(entry.path);
+      void window.libraryAPI.deleteTempDiscRip(entry.path);
     }
     this.staged = this.staged.filter((f) => f.path !== path);
   }
@@ -268,7 +303,7 @@ export class ImportComponent implements OnInit, OnDestroy {
   clearStaged() {
     for (const f of this.staged) {
       if (f.isTempRip) {
-        void window.libraryAPI.deleteTempDvdRip(f.path);
+        void window.libraryAPI.deleteTempDiscRip(f.path);
       }
     }
     this.staged = [];

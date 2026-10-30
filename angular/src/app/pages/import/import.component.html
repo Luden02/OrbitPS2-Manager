@@ -228,7 +228,7 @@
             <i-lucide name="file-search" size="18"></i-lucide> Add files…
             }
           </button>
-          @if (isGameDvd) {
+          @if (isGameDvd || isGameCd) {
           <button class="btn btn-outline" (click)="openDriveSelect()" [disabled]="scanning || ripping">
             <i-lucide name="disc" size="18"></i-lucide> Import from drive…
           </button>
@@ -253,8 +253,12 @@
             </select>
             } @else {
             <p class="text-xs text-base-content/55">
-              No optical drive auto-detected — enter the device path manually
-              (e.g. "D:" on Windows, "/dev/rdisk4" on macOS, "/dev/sr0" on Linux).
+              No optical drive auto-detected — enter the device path manually.
+              @if (isGameCd) {
+              <span class="block text-base-content/40">e.g. "D:" on Windows, "disk4" on macOS, "/dev/sg1" on Linux.</span>
+              } @else {
+              <span class="block text-base-content/40">e.g. "D:" on Windows, "/dev/rdisk4" on macOS, "/dev/sr0" on Linux.</span>
+              }
             </p>
             }
             @if (!selectedDevice) {
@@ -278,6 +282,18 @@
               >
                 Read disc
               </button>
+            </div>
+          </div>
+          } @else if (isGameCd) {
+          <div class="flex flex-col gap-2">
+            <div class="flex items-center gap-2 text-sm">
+              <span class="loading loading-spinner loading-sm"></span>
+              <span>Reading disc — this can take a while for CDs…</span>
+            </div>
+            <div class="max-h-32 overflow-y-auto rounded bg-base-300/40 p-2 font-mono text-[0.68rem] leading-snug">
+              @for (line of ripLines; track $index) {
+              <div>{{ line }}</div>
+              }
             </div>
           </div>
           } @else {

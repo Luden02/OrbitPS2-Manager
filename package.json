@@ -12,14 +12,15 @@
     "build": "tsc",
     "build:watch": "tsc -w",
     "build:info": "node scripts/generate-build-info.js",
-    "app:serve": "npm run build:info && concurrently \"npm run angular:serve\" \"npm run build:watch\" \"wait-on http://localhost:4200 && npm run electron:serve\"",
+    "fetch:redumper": "node scripts/fetch-redumper.js",
+    "app:serve": "npm run build:info && npm run fetch:redumper && concurrently \"npm run angular:serve\" \"npm run build:watch\" \"wait-on http://localhost:4200 && npm run electron:serve\"",
     "angular:serve": "cd angular && npx ng serve",
     "electron:serve": "electron ./dist/src/main.js --serve",
-    "start": "npm run build:info && npm run build && electron ./dist/src/main.js",
-    "package:win": "npm run remove && npm run build:info && cd angular && npm run build --omit=dev && cd .. && npm run build && electron-builder --win",
-    "package:mac": "npm run remove && npm run build:info && cd angular && npm run build --omit=dev && cd .. && npm run build && electron-builder --mac",
-    "package:linux": "npm run remove && npm run build:info && cd angular && npm run build --omit=dev && cd .. && npm run build && node scripts/patch-fpm-rpm.js && PATH=\"$(brew --prefix binutils 2>/dev/null)/bin:$PATH\" electron-builder --linux && node scripts/patch-fpm-rpm.js",
-    "package:all": "npm run remove && npm run build:info && cd angular && npm run build --omit=dev && cd .. && npm run build && node scripts/patch-fpm-rpm.js && PATH=\"$(brew --prefix binutils 2>/dev/null)/bin:$PATH\" electron-builder --win --mac --linux && node scripts/patch-fpm-rpm.js && node scripts/collect-distributables.js",
+    "start": "npm run build:info && npm run fetch:redumper && npm run build && electron ./dist/src/main.js",
+    "package:win": "npm run remove && npm run build:info && node scripts/fetch-redumper.js --platform=win --arch=x64 && cd angular && npm run build --omit=dev && cd .. && npm run build && electron-builder --win",
+    "package:mac": "npm run remove && npm run build:info && node scripts/fetch-redumper.js --platform=mac --arch=x64 && node scripts/fetch-redumper.js --platform=mac --arch=arm64 && cd angular && npm run build --omit=dev && cd .. && npm run build && electron-builder --mac",
+    "package:linux": "npm run remove && npm run build:info && node scripts/fetch-redumper.js --platform=linux --arch=x64 && cd angular && npm run build --omit=dev && cd .. && npm run build && node scripts/patch-fpm-rpm.js && PATH=\"$(brew --prefix binutils 2>/dev/null)/bin:$PATH\" electron-builder --linux && node scripts/patch-fpm-rpm.js",
+    "package:all": "npm run remove && npm run build:info && node scripts/fetch-redumper.js --platform=win --arch=x64 && node scripts/fetch-redumper.js --platform=mac --arch=x64 && node scripts/fetch-redumper.js --platform=mac --arch=arm64 && node scripts/fetch-redumper.js --platform=linux --arch=x64 && cd angular && npm run build --omit=dev && cd .. && npm run build && node scripts/patch-fpm-rpm.js && PATH=\"$(brew --prefix binutils 2>/dev/null)/bin:$PATH\" electron-builder --win --mac --linux && node scripts/patch-fpm-rpm.js && node scripts/collect-distributables.js",
     "remove": "rimraf -rf ./dist && rimraf -rf ./build",
     "electron": "electron",
     "test": "node scripts/run-tests.js"
@@ -58,6 +59,7 @@
       "output": "build"
     },
     "afterAllArtifactBuild": "./scripts/rename-linux-zip.js",
+    "afterPack": "./scripts/after-pack.js",
     "win": {
       "icon": "assets/applogo/icon_256x256.ico",
       "target": [

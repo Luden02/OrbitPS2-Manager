@@ -642,8 +642,33 @@ export async function moveFile(
           );
         } else {
           // Node's copyFile uses the platform implementation on other
-          // platforms too, but does not expose a byte-progress callback.
-          await fs.copyFile(sourcePath, targetPath);
+          // platforms too, but does not expose a byte-progress callback —
+          // poll the growing target so the UI can show speed and ETA.
+          const poll =
+            onProgress && totalSize > 0
+              ? setInterval(() => {
+                  fs.stat(targetPath).then(
+                    (written) =>
+                      onProgress({
+                        percent: Math.min(
+                          99,
+                          (written.size / totalSize) * 100
+                        ),
+                        copiedMB: written.size / (1024 * 1024),
+                        totalMB: totalSize / (1024 * 1024),
+                        elapsed: (Date.now() - startTime) / 1000,
+                      }),
+                    () => {
+                      /* target not visible yet — next tick reports it */
+                    }
+                  );
+                }, 500)
+              : undefined;
+          try {
+            await fs.copyFile(sourcePath, targetPath);
+          } finally {
+            if (poll) clearInterval(poll);
+          }
           onProgress?.({
             percent: 100,
             copiedMB: totalSize / (1024 * 1024),

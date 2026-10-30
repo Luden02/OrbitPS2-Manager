@@ -114,6 +114,24 @@ export type NewImportJob = Omit<
   'id' | 'status' | 'percent' | 'stage' | 'message' | 'createdAt' | 'finishedAt'
 >;
 
+/** " — 42.3 MB/s · 3m 20s left", or "" until there is enough data to average. */
+function describeTransferRate(progress: {
+  copiedMB: number;
+  totalMB: number;
+  elapsed: number;
+}): string {
+  if (progress.elapsed < 1 || progress.copiedMB <= 0) return '';
+  const mbPerSecond = progress.copiedMB / progress.elapsed;
+  const secondsLeft = Math.round(
+    (progress.totalMB - progress.copiedMB) / mbPerSecond,
+  );
+  const eta =
+    secondsLeft > 0
+      ? ` · ${secondsLeft >= 60 ? `${Math.floor(secondsLeft / 60)}m ${secondsLeft % 60}s` : `${secondsLeft}s`} left`
+      : '';
+  return ` — ${mbPerSecond.toFixed(1)} MB/s${eta}`;
+}
+
 /**
  * Owns the import queue. Jobs are processed one at a time (sequentially) — the
  * underlying IPC progress channels are global and unscoped, and serial disk I/O
@@ -691,7 +709,9 @@ export class JobsService {
     window.libraryAPI.onMoveFileProgress((progress) =>
       this.patchJob(job.id, {
         percent: progress.percent,
-        stage: `Copying ${progress.copiedMB.toFixed(2)}/${progress.totalMB.toFixed(2)} MB`,
+        stage:
+          `Copying ${progress.copiedMB.toFixed(2)}/${progress.totalMB.toFixed(2)} MB` +
+          describeTransferRate(progress),
       }),
     );
 

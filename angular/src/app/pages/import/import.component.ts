@@ -225,9 +225,14 @@ export class ImportComponent implements OnInit, OnDestroy {
 
   private async detectFile(path: string): Promise<StagedFile> {
     const fileName = path.split(/[\\/]/).pop() || path;
+    // ISO/ZSO go through the cached resolver: it decompresses ZSO (a raw hex
+    // scan never matches compressed data, so it read the whole file and then
+    // failed) and remembers the result per file, so re-staging is instant.
     const detect = this.isGamePsx
       ? this._libraryService.tryDeterminePs1GameIdFromHex(path)
-      : this._libraryService.tryDetermineGameIdFromHex(path);
+      : /\.(iso|zso)$/i.test(path)
+        ? this._libraryService.resolveIsoGameId(path)
+        : this._libraryService.tryDetermineGameIdFromHex(path);
 
     let message: string | undefined;
     try {

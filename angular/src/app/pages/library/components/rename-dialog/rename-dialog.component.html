@@ -188,6 +188,32 @@
         {{ skippedCount }} already match the chosen convention and will be left
         alone.
       </p>
+      } @if (collisionCount > 0) {
+      <div class="ml-6 mt-2 rounded border border-warning/40 bg-warning/10 p-2">
+        <div class="flex items-center gap-2 text-xs font-medium text-warning">
+          <i-lucide name="triangle-alert" size="14"></i-lucide>
+          <span>
+            {{ collisionCount }} game{{ collisionCount === 1 ? "" : "s" }} would
+            end up with a name another game already uses — skipped.
+          </span>
+        </div>
+        <p class="mt-1 text-xs text-base-content/55">
+          Regional releases share a title, so the
+          <span class="font-mono">&lt;Title&gt;.iso</span> convention can't
+          tell them apart. Keep the GAMEID convention for these, or rename them
+          by hand.
+        </p>
+        <ul class="mt-1 space-y-1 text-[0.68rem] font-mono text-base-content/70">
+          @for (group of collisionGroups; track group.target) {
+          <li>
+            @for (source of group.sources; track source) {
+            <div>{{ source }}</div>
+            }
+            <div class="text-base-content/45">→ {{ group.target }}</div>
+          </li>
+          }
+        </ul>
+      </div>
       }
       <p class="ml-6 mt-1 text-xs text-base-content/55">
         Art files in <span class="font-mono">ART/</span> are keyed by GAMEID

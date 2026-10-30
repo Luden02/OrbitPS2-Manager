@@ -378,6 +378,44 @@ export async function getArtFolder(dirpath: string) {
   }
 }
 
+/**
+ * True when `targetPath` is already occupied by a *different* file than
+ * `sourcePath`. `fs.rename` replaces its destination silently on every
+ * platform, so callers must refuse instead of destroying the occupant.
+ *
+ * A case-only rename ("ssx 3.iso" → "SSX 3.iso") on a case-insensitive
+ * volume resolves to the same file and is not a collision.
+ */
+export async function wouldOverwriteOtherFile(
+  sourcePath: string,
+  targetPath: string
+): Promise<boolean> {
+  if (sourcePath === targetPath) return false;
+
+  let targetStats;
+  try {
+    targetStats = await fs.stat(targetPath);
+  } catch (err: any) {
+    if (err?.code === "ENOENT") return false;
+    throw err;
+  }
+
+  const sourceStats = await fs.stat(sourcePath);
+  if (
+    sourceStats.ino !== 0 &&
+    sourceStats.ino === targetStats.ino &&
+    sourceStats.dev === targetStats.dev
+  ) {
+    return false;
+  }
+  // Some volumes report no usable inode; there, a pure case difference is
+  // still the same file (such volumes are case-insensitive in practice).
+  if (sourceStats.ino === 0 && sourcePath.toLowerCase() === targetPath.toLowerCase()) {
+    return false;
+  }
+  return true;
+}
+
 export async function renameGamefile(
   dirpath: string,
   gameId: string,
@@ -398,6 +436,14 @@ export async function renameGamefile(
   );
 
   try {
+    // Two regional releases of one game reduce to the same title under the
+    // "new" convention (SLUS/SLES both → "SSX 3.iso"). Skip and report —
+    // never let the second rename destroy the first.
+    if (await wouldOverwriteOtherFile(dirpath, newFilePath)) {
+      const message = `"${newFileName}" already exists here and is a different file — skipped so it isn't overwritten.`;
+      log.warn(`Refusing to rename ${path.basename(dirpath)} → ${newFileName}: target already exists`);
+      return { success: false, message };
+    }
     await fs.rename(dirpath, newFilePath);
     log.info(`Renamed ${gameId} → ${newFileName}`);
     return { success: true, newPath: newFilePath };
@@ -543,6 +589,18 @@ export async function moveFile(
     if (statErr?.code !== "ENOENT") {
       return { success: false, message: statErr?.message || String(statErr) };
     }
+  }
+
+  // Checked before the mkdir so it covers both the rename below and the
+  // EXDEV copy fallback — either would silently replace the occupant.
+  try {
+    if (await wouldOverwriteOtherFile(sourcePath, targetPath)) {
+      const message = `"${path.basename(targetPath)}" already exists in the destination — move skipped so it isn't overwritten.`;
+      log.warn(`Refusing to move ${sourcePath} → ${targetPath}: target already exists`);
+      return { success: false, message };
+    }
+  } catch (err: any) {
+    return { success: false, message: err?.message || String(err) };
   }
 
   try {

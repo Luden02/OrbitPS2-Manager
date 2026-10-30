@@ -72,6 +72,11 @@ export class LibraryRenameDialogComponent implements OnInit {
   ps1Action: Ps1Action = 'rename';
   ps1ElfPrefix: ElfPrefix = 'XX.';
 
+  /** Targets wanted by more than one game (or by an existing file) — excluded
+   *  from the plan so a rename can never overwrite another game. */
+  collisionGroups: { target: string; sources: string[] }[] = [];
+  collisionCount = 0;
+
   private plan: RenamePlanItem[] = [];
   private candidates: Game[] = [];
   private logEntryIdCounter = 0;
@@ -196,7 +201,7 @@ export class LibraryRenameDialogComponent implements OnInit {
   }
 
   get skippedCount(): number {
-    return this.candidates.length - this.plan.length;
+    return this.candidates.length - this.plan.length - this.collisionCount;
   }
 
   private sanitize(name: string): string {
@@ -231,7 +236,7 @@ export class LibraryRenameDialogComponent implements OnInit {
   }
 
   private rebuildPlan() {
-    this.plan = [];
+    const proposed: RenamePlanItem[] = [];
     for (const game of this.candidates) {
       if (game.isPs1Launcher) continue;
       const ext = game.extension;
@@ -242,9 +247,44 @@ export class LibraryRenameDialogComponent implements OnInit {
           : `${game.gameId}.${safeTitle}${ext}`;
       const current = `${game.filename}`;
       if (current !== target) {
-        this.plan.push({ game, current, target });
+        proposed.push({ game, current, target });
       }
     }
+
+    // The "new" convention drops the GAMEID, so two regional releases of one
+    // game reduce to the same filename (SLUS/SLES → "SSX 3.iso"). Renaming
+    // both would destroy one, so drop every contested entry from the plan and
+    // show it instead. Compared case-insensitively — the target volume
+    // (exFAT/NTFS) usually is.
+    const renaming = new Set(proposed.map((p) => p.game));
+    const occupied = new Set(
+      this.candidates
+        .filter((g) => !renaming.has(g))
+        .map((g) => `${g.filename}`.toLowerCase()),
+    );
+    const wanted = new Map<string, number>();
+    for (const p of proposed) {
+      const key = p.target.toLowerCase();
+      wanted.set(key, (wanted.get(key) ?? 0) + 1);
+    }
+
+    this.plan = [];
+    const groups = new Map<string, { target: string; sources: string[] }>();
+    for (const p of proposed) {
+      const key = p.target.toLowerCase();
+      if ((wanted.get(key) ?? 0) > 1 || occupied.has(key)) {
+        const group = groups.get(key) ?? { target: p.target, sources: [] };
+        group.sources.push(p.current);
+        groups.set(key, group);
+      } else {
+        this.plan.push(p);
+      }
+    }
+    this.collisionGroups = [...groups.values()];
+    this.collisionCount = this.collisionGroups.reduce(
+      (n, g) => n + g.sources.length,
+      0,
+    );
   }
 
   private addLog(

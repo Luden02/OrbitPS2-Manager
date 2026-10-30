@@ -47,7 +47,15 @@ jobs:
             args: --mac --x64 --arm64
             extra: -c.mac.identity=null
             redumper: node scripts/fetch-redumper.js --platform=mac --arch=x64 && node scripts/fetch-redumper.js --platform=mac --arch=arm64
-          - os: ubuntu-latest
+          # ponytail: pinned to 24.04 (rpm 4.18) — ubuntu-latest is rolling to
+          # 26.04, whose rpm 6 ignores the "--define buildroot" that the fpm
+          # electron-builder bundles still passes, so the rpm target fails.
+          # Patching fpm the way scripts/patch-fpm-rpm.js does on macOS isn't
+          # viable here: electron-builder downloads fpm mid-build, so there's
+          # nothing to patch beforehand on a cold runner. Revisit when 24.04
+          # is retired or electron-builder ships an fpm that handles rpm 6.
+          # Building on the older glibc also keeps the AppImage/deb portable.
+          - os: ubuntu-24.04
             args: --linux
             extra: ""
             redumper: node scripts/fetch-redumper.js --platform=linux --arch=x64

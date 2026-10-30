@@ -215,7 +215,7 @@ function buildLibraryAPI() {
       downloadArtwork: boolean,
       gameId?: string,
       gameName?: string,
-      launcherMode?: "popstarter" | "popsloader"
+      launcherMode?: "popstarter" | "popsloader" | "ember"
     ) =>
       ipcRenderer.invoke(
         "import-ps1-game",

@@ -15,7 +15,7 @@ export interface AppSettings {
   /** Re-mount the last directory automatically on launch. */
   autoReconnect: boolean;
   /** Last-picked PS1 launcher style on the Import screen. */
-  ps1LauncherMode?: "popstarter" | "popsloader";
+  ps1LauncherMode?: "popstarter" | "popsloader" | "ember";
   /** Optional Ember root/games folder overrides keyed by mounted OPL root. */
   emberDirectories?: Record<string, string>;
   /** UI color theme. "system" follows the OS light/dark preference (OrbitPS2 only). */

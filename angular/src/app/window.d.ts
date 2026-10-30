@@ -242,7 +242,7 @@ declare interface Window {
       downloadArtwork: boolean,
       gameId?: string,
       gameName?: string,
-      launcherMode?: 'popstarter' | 'popsloader',
+      launcherMode?: 'popstarter' | 'popsloader' | 'ember',
     ) => Promise<any>;
 
     /** Listen for PS1 import progress events. */
@@ -613,7 +613,7 @@ declare interface AppSettings {
   /** Whether to auto-reconnect to the last directory on startup. */
   autoReconnect: boolean;
   /** Last-picked PS1 launcher style on the Import screen. */
-  ps1LauncherMode?: 'popstarter' | 'popsloader';
+  ps1LauncherMode?: 'popstarter' | 'popsloader' | 'ember';
   /** Optional Ember root/games folder overrides keyed by mounted OPL root. */
   emberDirectories?: Record<string, string>;
   /** UI color theme. "system" follows the OS light/dark preference (OrbitPS2 only). */

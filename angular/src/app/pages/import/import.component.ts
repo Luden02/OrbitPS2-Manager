@@ -36,8 +36,11 @@ export class ImportComponent implements OnInit, OnDestroy {
   /** PS2 DVD only: keep the original filename (new OPL convention). */
   keepOriginalName = false;
   elfPrefix = 'XX.';
-  /** PS1 only: POPStarter (APPS launcher) vs POPSLoader (no launcher, no GameID in filename). */
-  launcherMode: 'popstarter' | 'popsloader' = 'popstarter';
+  /**
+   * PS1 only: POPStarter (APPS launcher), POPSLoader (no launcher, no GameID
+   * in filename) or Ember (no VCD at all — BIN/CUE kept as-is).
+   */
+  launcherMode: 'popstarter' | 'popsloader' | 'ember' = 'popstarter';
   /** PS1 only: VCD art naming convention. */
   vcdArtNaming: 'gameId' | 'filename' = 'gameId';
 
@@ -56,7 +59,7 @@ export class ImportComponent implements OnInit, OnDestroy {
     }
   }
 
-  setLauncherMode(mode: 'popstarter' | 'popsloader') {
+  setLauncherMode(mode: 'popstarter' | 'popsloader' | 'ember') {
     this.launcherMode = mode;
     void this._settings.set('ps1LauncherMode', mode);
   }

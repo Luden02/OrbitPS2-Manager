@@ -6,6 +6,7 @@ import { createLogger, formatBytes } from "../logger";
 import { isDirectoryEntry } from "../utils/fs-entry";
 import { parseArtworkBaseName } from "../utils/artwork-name";
 import { tryDeterminePs1GameIdFromHex } from "./game-id-resolver.service";
+import { getSettings, directoryExists } from "./settings.service";
 
 const log = createLogger("library");
 
@@ -165,6 +166,23 @@ async function directorySize(dirPath: string): Promise<number> {
  * first MODE1/MODE2 data track, which is resolved by tryDeterminePs1GameIdFromHex.
  * A user-selected path may point at either EMBER/ or EMBER/games/.
  */
+/**
+ * The games directory a new Ember import lands in: the folder the user
+ * assigned to this OPL root, else <oplRoot>/EMBER. As with getEmberGames,
+ * either may already point at games/ itself. The directory need not exist —
+ * the importer creates it.
+ */
+export function resolveEmberGamesDir(oplRoot: string): string {
+  const configured = getSettings().emberDirectories?.[oplRoot];
+  const base =
+    configured && directoryExists(configured)
+      ? configured
+      : path.join(oplRoot, "EMBER");
+  return path.basename(base).toLowerCase() === "games"
+    ? base
+    : path.join(base, "games");
+}
+
 export async function getEmberGames(emberPath: string) {
   try {
     const selected = path.resolve(emberPath);

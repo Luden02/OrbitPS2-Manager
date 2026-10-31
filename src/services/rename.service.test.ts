@@ -293,3 +293,86 @@ test("leftover GameID artwork does not block canonical artwork", async () => {
     );
   });
 });
+
+test("LUNA sub-folder artwork follows a canonical rename", async () => {
+  await withTempDir(async (dir) => {
+    const popsDir = path.join(dir, "POPS");
+    const artDir = path.join(dir, "ART");
+    await fs.mkdir(popsDir, { recursive: true });
+    await fs.mkdir(path.join(artDir, "PSBBN"), { recursive: true });
+    await fs.mkdir(path.join(artDir, "SCROLL"), { recursive: true });
+
+    const oldVcd = path.join(popsDir, "SPyro 4.VCD");
+    await fs.writeFile(oldVcd, "vcd");
+    await fs.writeFile(path.join(artDir, "SPyro 4_COV.png"), "cover");
+    await fs.writeFile(path.join(artDir, "PSBBN", "SPyro 4.png"), "square");
+    await fs.writeFile(
+      path.join(artDir, "SCROLL", "SPyro 4_LGO.png"),
+      "scroll"
+    );
+
+    const result = await normalizeRiptOplPs1Storage({
+      kind: "VCD",
+      sourcePath: oldVcd,
+      gameId: "SCUS_944.25",
+      canonicalTitle: "SPYRO 2 - RIPTO'S RAGE",
+      artDir,
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(
+      await fs.readFile(
+        path.join(artDir, "PSBBN", "SPYRO 2 - RIPTO'S RAGE.png"),
+        "utf8"
+      ),
+      "square",
+      "the square cover must not be left behind under the old identity"
+    );
+    assert.equal(
+      await fs.readFile(
+        path.join(artDir, "SCROLL", "SPYRO 2 - RIPTO'S RAGE_LGO.png"),
+        "utf8"
+      ),
+      "scroll"
+    );
+    assert.deepEqual(await fs.readdir(path.join(artDir, "PSBBN")), [
+      "SPYRO 2 - RIPTO'S RAGE.png",
+    ]);
+  });
+});
+
+test("an occupied LUNA square cover stops normalization like a flat one", async () => {
+  await withTempDir(async (dir) => {
+    const popsDir = path.join(dir, "POPS");
+    const artDir = path.join(dir, "ART");
+    await fs.mkdir(popsDir, { recursive: true });
+    await fs.mkdir(path.join(artDir, "PSBBN"), { recursive: true });
+
+    const oldVcd = path.join(popsDir, "SPyro 4.VCD");
+    await fs.writeFile(oldVcd, "vcd");
+    await fs.writeFile(path.join(artDir, "PSBBN", "SPyro 4.png"), "old");
+    await fs.writeFile(
+      path.join(artDir, "PSBBN", "SPYRO 2 - RIPTO'S RAGE.png"),
+      "canonical"
+    );
+
+    const result = await normalizeRiptOplPs1Storage({
+      kind: "VCD",
+      sourcePath: oldVcd,
+      gameId: "SCUS_944.25",
+      canonicalTitle: "SPYRO 2 - RIPTO'S RAGE",
+      artDir,
+    });
+
+    assert.equal(result.success, false);
+    assert.match(result.message ?? "", /already occupies the target slot/i);
+    assert.equal(await fs.readFile(oldVcd, "utf8"), "vcd");
+    assert.equal(
+      await fs.readFile(
+        path.join(artDir, "PSBBN", "SPYRO 2 - RIPTO'S RAGE.png"),
+        "utf8"
+      ),
+      "canonical"
+    );
+  });
+});

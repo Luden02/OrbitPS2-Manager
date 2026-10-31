@@ -62,3 +62,38 @@ test("Ember deletion leaves artwork untouched when folder deletion fails", async
     );
   });
 });
+
+test("Ember deletion also removes the LUNA sub-folder artwork", async () => {
+  await withTempDir(async (dir) => {
+    const gamePath = path.join(dir, "EMBER", "games", "Spyro Custom");
+    const artDir = path.join(dir, "ART");
+    await fs.mkdir(gamePath, { recursive: true });
+    await fs.mkdir(path.join(artDir, "PSBBN"), { recursive: true });
+    await fs.mkdir(path.join(artDir, "SCROLL"), { recursive: true });
+    await fs.writeFile(path.join(gamePath, "game.cue"), "cue");
+    await fs.writeFile(path.join(artDir, "PSBBN", "Spyro Custom.png"), "square");
+    await fs.writeFile(
+      path.join(artDir, "SCROLL", "Spyro Custom_LGO.png"),
+      "scroll",
+    );
+    await fs.writeFile(path.join(artDir, "PSBBN", "Other Game.png"), "keep");
+
+    const result = await deleteEmberGameAndRelatedFiles(
+      gamePath,
+      artDir,
+      "Spyro Custom",
+    );
+
+    assert.equal(result.success, true);
+    await assert.rejects(() =>
+      fs.access(path.join(artDir, "PSBBN", "Spyro Custom.png")),
+    );
+    await assert.rejects(() =>
+      fs.access(path.join(artDir, "SCROLL", "Spyro Custom_LGO.png")),
+    );
+    assert.equal(
+      await fs.readFile(path.join(artDir, "PSBBN", "Other Game.png"), "utf8"),
+      "keep",
+    );
+  });
+});

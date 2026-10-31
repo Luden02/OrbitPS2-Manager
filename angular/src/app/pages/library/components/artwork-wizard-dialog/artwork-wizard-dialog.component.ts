@@ -6,6 +6,7 @@ import { LibraryService } from '@shared/services/library.service';
 import {
   ART_CATEGORIES,
   artCategoryForType,
+  artFileForType,
   artSaveNameCandidates,
   artSaveNamesForSelection,
   artTypeLabel,
@@ -266,11 +267,14 @@ export class ArtworkWizardDialogComponent {
         identities.length > 0
           ? [...new Set([localName, ...identities])]
           : [localName];
+      // Keyed by the path relative to ART/, not by a flat file name: LUNA's two
+      // assets live in sub-folders, so probing `<stem>_PSBBN.png` would report
+      // a square cover that is on disk as missing.
       const baseOfFile = new Map<string, string>();
       for (const stem of stems) {
         for (const d of result.data) {
           for (const base of artSaveNameCandidates(d.type)) {
-            baseOfFile.set(`${stem}_${base}.png`, base);
+            baseOfFile.set(artFileForType(d.type, stem, base), base);
           }
         }
       }

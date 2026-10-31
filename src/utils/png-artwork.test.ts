@@ -103,6 +103,21 @@ test("non-indexed source is rejected instead of writing incompatible art", () =>
 });
 
 
+test("a type with no documented geometry keeps a truecolor source as-is", () => {
+  // LUNA's square PSBBN cover is the one asset served as truecolor rather than
+  // 8-bit indexed, and it already arrives at the size LUNA wants.
+  const input = Buffer.from(indexedPng(256, 256));
+  input[25] = 2;
+  const output = normalizeArtworkPng(input, "PS2", "PSBBN");
+  assert.equal(output, input);
+});
+
+test("a source that is not a PNG at all is still rejected", () => {
+  assert.throws(() =>
+    normalizeArtworkPng(Buffer.from("<html>404</html>"), "PS2", "PSBBN"),
+  );
+});
+
 test("COV2 back cover keeps the database back-cover dimensions", () => {
   const input = indexedPng(222, 200);
   const output = normalizeArtworkPng(input, "PS1", "COV2");

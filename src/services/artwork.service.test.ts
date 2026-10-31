@@ -3,7 +3,7 @@ import { test } from "node:test";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
-import { downloadArtByGameId } from "./artwork.service";
+import { downloadArtByGameId, withLunaArt } from "./artwork.service";
 
 async function withTempDir(run: (dir: string) => Promise<void>): Promise<void> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "orbit-art-"));
@@ -583,4 +583,146 @@ test("reports a folder it cannot create instead of downloading into nothing", as
       assert.match(entry.error, /Could not create artwork folder/);
     }
   });
+});
+
+test("the LUNA square cover is fetched flat and saved without a type suffix", async () => {
+  await withTempDir(async (dir) => {
+    const requested: string[] = [];
+    const urls: string[] = [];
+    const result = await downloadArtByGameId(
+      dir,
+      "SLUS_200.01",
+      "PS2",
+      undefined,
+      ["PSBBN"],
+      async (url, fileName) => {
+        requested.push(fileName);
+        urls.push(url);
+        return Buffer.from("square");
+      }
+    );
+
+    assert.equal(result.success, true);
+    assert.deepEqual(requested, ["SLUS_200.01.png"]);
+    assert.match(urls[0], /psbbn-art-database\/.*\/art\/SLUS_200\.01\.png$/);
+    const saved = path.join(dir, "PSBBN", "SLUS_200.01.png");
+    assert.equal(await fs.readFile(saved, "utf8"), "square");
+    assert.equal(result.data[0].savedPath, saved);
+  });
+});
+
+test("the LUNA scroll logo is the OPL logo written into its own folder", async () => {
+  await withTempDir(async (dir) => {
+    const requested: string[] = [];
+    const result = await downloadArtByGameId(
+      dir,
+      "SLUS_200.01",
+      "PS2",
+      undefined,
+      ["LGO", "SCROLL"],
+      async (_url, fileName) => {
+        requested.push(fileName);
+        return Buffer.from("logo");
+      }
+    );
+
+    assert.equal(result.success, true);
+    // Both slots fetch the same remote file: they are two destinations, not two
+    // variants, so neither may claim the file away from the other.
+    assert.deepEqual(requested, [
+      "SLUS_200.01_LGO.png",
+      "SLUS_200.01_LGO.png",
+    ]);
+    assert.equal(
+      await fs.readFile(path.join(dir, "SLUS_200.01_LGO.png"), "utf8"),
+      "logo"
+    );
+    assert.equal(
+      await fs.readFile(path.join(dir, "SCROLL", "SLUS_200.01_LGO.png"), "utf8"),
+      "logo"
+    );
+  });
+});
+
+test("a LUNA asset is saved under the PS1 storage name, not the Game ID", async () => {
+  await withTempDir(async (dir) => {
+    const result = await downloadArtByGameId(
+      dir,
+      "SLUS_200.01",
+      "PS1",
+      "Crash Bandicoot",
+      ["PSBBN", "SCROLL"],
+      async () => Buffer.from("art")
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(
+      await fs.readFile(path.join(dir, "PSBBN", "Crash Bandicoot.png"), "utf8"),
+      "art"
+    );
+    assert.equal(
+      await fs.readFile(
+        path.join(dir, "SCROLL", "Crash Bandicoot_LGO.png"),
+        "utf8"
+      ),
+      "art"
+    );
+  });
+});
+
+test("a missing LUNA square cover is reported rather than retried elsewhere", async () => {
+  await withTempDir(async (dir) => {
+    const requested: string[] = [];
+    const result = await downloadArtByGameId(
+      dir,
+      "SLUS_200.01",
+      "PS2",
+      undefined,
+      ["PSBBN"],
+      async (_url, fileName) => {
+        requested.push(fileName);
+        throw new Error(`Failed to download ${fileName}: 404`);
+      }
+    );
+
+    assert.equal(result.success, false);
+    assert.deepEqual(requested, ["SLUS_200.01.png"]);
+    assert.match(result.data[0].error, /404/);
+  });
+});
+
+test("the scroll logo is offered only when the OPL logo exists", () => {
+  const logo = {
+    type: "LGO",
+    fileName: "SLUS_200.01_LGO.png",
+    downloadUrl: "https://example.test/SLUS_200.01_LGO.png",
+  };
+
+  const withLogo = withLunaArt([logo], null);
+  const scroll = withLogo.find((e) => e.type === "SCROLL");
+  assert.ok(scroll, "a game with a logo can have a scroll logo");
+  // Same image, second destination — no lookup of its own.
+  assert.equal(scroll.downloadUrl, logo.downloadUrl);
+  assert.equal(scroll.fileName, logo.fileName);
+
+  const coverOnly = withLunaArt(
+    [{ type: "COV", fileName: "SLUS_200.01_COV.png", downloadUrl: "u" }],
+    null
+  );
+  assert.deepEqual(
+    coverOnly.map((e) => e.type),
+    ["COV"],
+    "no logo in the database means no scroll logo to offer"
+  );
+});
+
+test("the square cover is offered independently of the OPL listing", () => {
+  const psbbn = {
+    type: "PSBBN",
+    fileName: "SLUS_200.01.png",
+    downloadUrl: "https://example.test/art/SLUS_200.01.png",
+  };
+
+  assert.deepEqual(withLunaArt([], psbbn), [psbbn]);
+  assert.deepEqual(withLunaArt([], null), []);
 });

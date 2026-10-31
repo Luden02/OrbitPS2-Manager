@@ -330,17 +330,22 @@ export function normalizeArtworkPng(
   system: ArtworkSystem,
   saveType: string,
 ): Buffer {
+  // Still rejects anything that is not a PNG at all, whatever the type.
   const info = readPngInfo(buffer);
+
+  const expected = EXPECTED_DIMENSIONS[system][saveType.toUpperCase()];
+  // A type with no geometry of its own is written exactly as the database
+  // served it. LUNA's square cover is the one asset that ships as truecolor
+  // rather than 8-bit indexed, and it already arrives at the size LUNA wants —
+  // only the resize below cannot read it.
+  if (!expected) {
+    return buffer;
+  }
 
   if (info.bitDepth !== 8 || info.colorType !== 3) {
     throw new Error(
       "Artwork source must be an 8-bit indexed PNG for RiptOPL compatibility.",
     );
-  }
-
-  const expected = EXPECTED_DIMENSIONS[system][saveType.toUpperCase()];
-  if (!expected) {
-    return buffer;
   }
 
   return resizeIndexedPng(

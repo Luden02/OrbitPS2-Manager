@@ -47,6 +47,7 @@ The goal isn't to replace OPLManager, but to offer an alternative — one that's
 - Download cover, icon, and screenshot art (`COV` / `ICO` / `SCR`) for **PS1 & PS2**
 - Fetch art for a **single game** or for your **entire library** in one click
 - Sourced from the [PSX / PS2 OPL Art Database](https://github.com/Luden02/psx-ps2-opl-art-database)
+- Optional **LUNA / NHDDL** assets alongside the OPL ones: square art (`ART/PSBBN/`, from the [PSBBN Art Database](https://github.com/CosmicScale/psbbn-art-database)) and scroll logos (`ART/SCROLL/`) — ignored by OPL, so they are opt-in
 
 ### 🗜️ Compression & conversion
 

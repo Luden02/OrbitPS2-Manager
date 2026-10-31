@@ -5,6 +5,7 @@ import path from "path";
 import { createLogger, formatBytes } from "../logger";
 import { isDirectoryEntry } from "../utils/fs-entry";
 import { parseArtworkBaseName } from "../utils/artwork-name";
+import { listLunaArtFiles } from "../utils/art-folder";
 import { tryDeterminePs1GameIdFromHex } from "./game-id-resolver.service";
 
 const log = createLogger("library");
@@ -370,6 +371,24 @@ export async function getArtFolder(dirpath: string) {
           })
       )
     ).filter((f): f is NonNullable<typeof f> => f !== null);
+
+    // LUNA's own assets live in sub-folders and are never displayed by this
+    // app — only their presence is reported, so the artwork dialogs can tell
+    // what a game is still missing. Reading a 256x256 truecolor cover per game
+    // would add tens of megabytes to the payload the renderer receives for
+    // nothing. `name` carries the `_<TYPE>` suffix the flat files have even
+    // though PSBBN's file on disk has none: it is the identity key every
+    // artwork matcher in the app is built on.
+    const lunaArt = (await listLunaArtFiles(artDir)).map((file) => ({
+      name: `${file.identity}_${file.type}`,
+      extension: path.extname(file.name),
+      path: file.path,
+      gameId: file.identity,
+      type: file.type,
+      base64: "",
+    }));
+    artFiles.push(...lunaArt);
+
     log.verbose(`Loaded ${artFiles.length} artwork file(s) from ${artDir}`);
     return { success: true, data: artFiles };
   } catch (err) {

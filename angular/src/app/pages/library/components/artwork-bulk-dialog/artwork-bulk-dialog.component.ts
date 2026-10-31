@@ -16,6 +16,8 @@ import { LucideAngularModule } from 'lucide-angular';
 import { LibraryService } from '@shared/services/library.service';
 import {
   KNOWN_ART_TYPES,
+  LUNA_ONLY_ART_TYPES,
+  artFileForType,
   artSaveNamesForSelection,
   artTypeLabel,
 } from '@shared/constants/artwork-presets';
@@ -106,6 +108,20 @@ export class ArtworkBulkDialogComponent implements OnInit {
   readonly availableArtTypes = KNOWN_ART_TYPES;
   readonly artTypeLabel = artTypeLabel;
 
+  /**
+   * File an asset type lands on, relative to ART/, with `*` standing in for the
+   * game's artwork identity. Shown under each label so the LUNA assets visibly
+   * go somewhere else than the flat OPL files.
+   */
+  artFileHint(type: ArtType): string {
+    return artFileForType(type, '*');
+  }
+
+  /** Whether a type is one LUNA reads and Open PS2 Loader ignores. */
+  isLunaOnlyType(type: ArtType): boolean {
+    return LUNA_ONLY_ART_TYPES.includes(type);
+  }
+
   /** Initially empty — nothing is preselected; the user picks what to fetch. */
   readonly artTypes = signal<ArtType[]>([]);
 
@@ -190,7 +206,13 @@ export class ArtworkBulkDialogComponent implements OnInit {
    * Drives the "Missing artwork" list.
    */
   readonly missingArtItems = computed<MissingArtItem[]>(() => {
-    const types = this.availableArtTypes;
+    // LUNA's two assets are the exception: they are opt-in, and an OPL-only
+    // library must not read as incomplete over files its loader never looks
+    // at. They join the overview as soon as the user ticks them.
+    const selected = new Set<string>(this.artTypes());
+    const types = this.availableArtTypes.filter(
+      (t) => !LUNA_ONLY_ART_TYPES.includes(t) || selected.has(t),
+    );
     return this.scopedGames()
       .map((g) => ({
         label: g.label,

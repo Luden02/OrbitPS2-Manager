@@ -1,6 +1,7 @@
 import * as fs from "fs/promises";
 import path from "path";
 import { createLogger } from "../logger";
+import { lunaArtPathsForIdentity } from "../utils/art-folder";
 
 const log = createLogger("delete");
 
@@ -105,13 +106,17 @@ export async function deleteGameAndRelatedFiles(
     const artPrefix = bootName || gameId;
     try {
       const artFiles = await fs.readdir(artDir);
-    const relatedArt = artFiles.filter((f) =>
-      f.startsWith(artPrefix + "_") && !f.startsWith(".")
-    );
+    const relatedArt = [
+      ...artFiles
+        .filter((f) => f.startsWith(artPrefix + "_") && !f.startsWith("."))
+        .map((f) => path.join(artDir, f)),
+      // LUNA keeps its square cover and scroll logo in sub-folders of ART/,
+      // which a flat listing never sees.
+      ...(await lunaArtPathsForIdentity(artDir, artPrefix)),
+    ];
       if (relatedArt.length > 0) {
         log.verbose(`Removing ${relatedArt.length} artwork file(s) for ${artPrefix}`);
-        for (const artFile of relatedArt) {
-          const artPath = path.join(artDir, artFile);
+        for (const artPath of relatedArt) {
           try {
             await fs.unlink(artPath);
             addEntry("Artwork", true, rel(artPath));
@@ -173,9 +178,13 @@ export async function deleteEmberGameAndRelatedFiles(
   try {
     const artFiles = await fs.readdir(artDir);
     const prefix = identity + "_";
-    for (const artFile of artFiles) {
-      if (artFile.startsWith(".") || !artFile.startsWith(prefix)) continue;
-      const artPath = path.join(artDir, artFile);
+    const relatedArt = [
+      ...artFiles
+        .filter((f) => !f.startsWith(".") && f.startsWith(prefix))
+        .map((f) => path.join(artDir, f)),
+      ...(await lunaArtPathsForIdentity(artDir, identity)),
+    ];
+    for (const artPath of relatedArt) {
       try {
         await fs.unlink(artPath);
         addEntry("Artwork", true, rel(artPath));

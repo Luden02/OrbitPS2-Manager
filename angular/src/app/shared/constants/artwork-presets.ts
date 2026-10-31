@@ -8,7 +8,34 @@ export const ART_TYPE_LABELS: Record<string, string> = {
   BG: 'Background',
   LAB: 'Spine Label',
   LGO: 'Logo',
+  PSBBN: 'Square Art',
+  SCROLL: 'Scroll Logo',
 };
+
+/**
+ * Where a type's file lives inside `ART/`, relative to that folder.
+ *
+ * LUNA reads two assets OPL does not, each from its own sub-folder:
+ * `PSBBN/<name>.png` (the square cover, no type suffix) and
+ * `SCROLL/<name>_LGO.png`. Everything else is a flat `<name>_<TYPE>.png`.
+ * Mirrors the save paths in the main process's `artwork.service`.
+ */
+const LUNA_ART_FILES: Record<string, (localName: string) => string> = {
+  PSBBN: (localName) => `PSBBN/${localName}.png`,
+  SCROLL: (localName) => `SCROLL/${localName}_LGO.png`,
+};
+
+/** Asset types LUNA reads and OPL ignores. */
+export const LUNA_ONLY_ART_TYPES: readonly string[] = Object.keys(LUNA_ART_FILES);
+
+/** Path of one asset relative to the `ART/` folder. */
+export function artFileForType(
+  type: string,
+  localName: string,
+  saveType = type,
+): string {
+  return LUNA_ART_FILES[type]?.(localName) ?? `${localName}_${saveType}.png`;
+}
 
 /** Family label used for the database's indexed `SCR_NN` / `BG_NN` codes. */
 const INDEXED_LABEL_BASE: Record<string, string> = {
@@ -120,6 +147,8 @@ export const KNOWN_ART_TYPES = [
   'BG',
   'LAB',
   'LGO',
+  'PSBBN',
+  'SCROLL',
 ] as const;
 
 export interface ArtCategory {
@@ -156,21 +185,25 @@ export const ART_CATEGORIES: ArtCategory[] = [
   { id: 'backgrounds', label: 'Backgrounds', types: ['BG'], prefixes: ['BG'] },
   { id: 'logo', label: 'Logos', types: ['LGO'], prefixes: ['LGO'] },
   { id: 'spine', label: 'Spine', types: ['LAB'], prefixes: ['LAB'] },
+  { id: 'luna', label: 'LUNA', types: ['PSBBN', 'SCROLL'] },
 ];
 
 /**
- * Id of the category a type code belongs to. Exact codes are matched first;
- * when none matches, the code is tested against each category's prefixes so
- * indexed database variants like `SCR_00` or `BG_02` still end up in their
- * group. Returns undefined for completely unknown types.
+ * Id of the category a type code belongs to. Every category's exact codes are
+ * matched first; only then is the code tested against the prefixes, so indexed
+ * database variants like `SCR_00` or `BG_02` still end up in their group
+ * without a known code being dragged into a group it merely shares a prefix
+ * with (`SCROLL` is a LUNA asset, not a screenshot). Returns undefined for
+ * completely unknown types.
  */
 export function artCategoryForType(type: string): string | undefined {
   const upper = type.toUpperCase();
-  return ART_CATEGORIES.find(
-    (c) =>
-      c.types.includes(upper) ||
+  return (
+    ART_CATEGORIES.find((c) => c.types.includes(upper))?.id ??
+    ART_CATEGORIES.find((c) =>
       (c.prefixes ?? []).some((p) => upper.startsWith(p)),
-  )?.id;
+    )?.id
+  );
 }
 
 /** Any art type that is not listed in a known category. */

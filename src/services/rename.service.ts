@@ -6,6 +6,7 @@ import {
   sanitizeRiptOplPs1StorageName,
 } from "../utils/sanitize";
 import { parseArtworkBaseName } from "../utils/artwork-name";
+import { ArtFile, listArtFiles } from "../utils/art-folder";
 import { findPopstarterElf } from "./ps1-import.service";
 
 const log = createLogger("rename");
@@ -67,28 +68,21 @@ async function renameMatchingCoverArt(
   newBaseName: string,
   onProgress?: (percent: number, stage: string) => void,
 ): Promise<number> {
-  let entries: string[];
-  try {
-    entries = await fs.readdir(artDir);
-  } catch {
-    return 0;
-  }
+  // Walks the LUNA sub-folders as well: a square cover left behind under the
+  // old identity is art the game no longer has and the next game to take that
+  // name inherits.
+  const artFiles = await listArtFiles(artDir);
 
   let renamed = 0;
-  for (const name of entries) {
-    if (name.startsWith(".")) continue;
-    const ext = path.extname(name);
-    if (!/^\.(png|jpe?g)$/i.test(ext)) continue;
-    const baseName = name.slice(0, -ext.length);
-    const parsed = parseArtworkBaseName(baseName);
-    if (!parsed || !matches(parsed.identity)) continue;
+  for (const file of artFiles) {
+    if (!matches(file.identity)) continue;
 
-    const targetType = parsed.type;
-    const newName = `${newBaseName}_${targetType}${ext}`;
+    const name = file.name;
+    const newName = file.renamedTo(newBaseName);
     if (newName === name) continue;
 
-    const sourcePath = path.join(artDir, name);
-    const targetPath = path.join(artDir, newName);
+    const sourcePath = file.path;
+    const targetPath = path.join(file.dir, newName);
     const caseOnly =
       sourcePath !== targetPath &&
       sourcePath.toLocaleLowerCase() === targetPath.toLocaleLowerCase();
@@ -126,28 +120,18 @@ async function copyMatchingCoverArt(
   matches: (nameBeforeType: string) => boolean,
   newBaseName: string,
 ): Promise<number> {
-  let entries: string[];
-  try {
-    entries = await fs.readdir(artDir);
-  } catch {
-    return 0;
-  }
+  const artFiles = await listArtFiles(artDir);
 
   let copied = 0;
-  for (const name of entries) {
-    if (name.startsWith(".")) continue;
-    const ext = path.extname(name);
-    if (!/^\.(png|jpe?g)$/i.test(ext)) continue;
-    const baseName = name.slice(0, -ext.length);
-    const parsed = parseArtworkBaseName(baseName);
-    if (!parsed || !matches(parsed.identity)) continue;
+  for (const file of artFiles) {
+    if (!matches(file.identity)) continue;
 
-    const targetType = parsed.type;
-    const targetName = `${newBaseName}_${targetType}${ext}`;
+    const name = file.name;
+    const targetName = file.renamedTo(newBaseName);
     if (targetName.toLocaleLowerCase() === name.toLocaleLowerCase()) continue;
 
-    const sourcePath = path.join(artDir, name);
-    const targetPath = path.join(artDir, targetName);
+    const sourcePath = file.path;
+    const targetPath = path.join(file.dir, targetName);
     try {
       await fs.access(targetPath);
       log.verbose(`Artwork copy target already exists, keeping it: ${targetName}`);
@@ -192,9 +176,11 @@ async function planMatchingCoverArtRenames(
   fallbackMatches: (nameBeforeType: string) => boolean,
   newBaseName: string,
 ): Promise<{ operations: ArtworkRenameOperation[]; message?: string }> {
-  let entries: string[];
+  // Read the folder on its own first: `listArtFiles` treats an unreadable
+  // folder as an empty one, which is right for the optional LUNA sub-folders
+  // but would silently rename a game and leave its whole ART/ behind.
   try {
-    entries = await fs.readdir(artDir);
+    await fs.readdir(artDir);
   } catch (err: unknown) {
     if (
       err instanceof Error &&
@@ -211,17 +197,15 @@ async function planMatchingCoverArtRenames(
     };
   }
 
-  const imageEntries = entries.filter((name) =>
-    /^\.(png|jpe?g)$/i.test(path.extname(name))
-  );
-  const classify = (name: string): "primary" | "fallback" | null => {
-    const ext = path.extname(name);
-    const parsed = parseArtworkBaseName(name.slice(0, -ext.length));
-    if (!parsed) return null;
-    if (primaryMatches(parsed.identity)) return "primary";
-    if (fallbackMatches(parsed.identity)) return "fallback";
+  const imageEntries = await listArtFiles(artDir);
+  const classify = (file: ArtFile): "primary" | "fallback" | null => {
+    if (primaryMatches(file.identity)) return "primary";
+    if (fallbackMatches(file.identity)) return "fallback";
     return null;
   };
+  /** Slots are per folder: `PSBBN/X.png` never competes with `X_COV.png`. */
+  const slotKey = (dir: string, fileName: string): string =>
+    dir + "\u0000" + path.parse(fileName).name.toLocaleLowerCase();
 
   const plannedLogicalTargets = new Map<
     string,
@@ -232,27 +216,20 @@ async function planMatchingCoverArtRenames(
   // Plan primary storage-identity artwork first. GameID-keyed files are
   // fallbacks and must never block or overwrite an already-populated slot.
   const ordered = [
-    ...imageEntries.filter((name) => classify(name) === "primary"),
-    ...imageEntries.filter((name) => classify(name) === "fallback"),
+    ...imageEntries.filter((file) => classify(file) === "primary"),
+    ...imageEntries.filter((file) => classify(file) === "fallback"),
   ];
 
-  for (const name of ordered) {
-    if (name.startsWith(".")) continue;
-
-    const kind = classify(name);
+  for (const file of ordered) {
+    const kind = classify(file);
     if (!kind) continue;
 
-    const ext = path.extname(name);
-    const baseName = name.slice(0, -ext.length);
-    const parsed = parseArtworkBaseName(baseName);
-    if (!parsed) continue;
-
-    const targetType = parsed.type;
-    const targetName = newBaseName + "_" + targetType + ext;
+    const name = file.name;
+    const targetName = file.renamedTo(newBaseName);
     if (targetName === name) continue;
 
     const sourceLower = name.toLocaleLowerCase();
-    const targetLogicalKey = path.parse(targetName).name.toLocaleLowerCase();
+    const targetLogicalKey = slotKey(file.dir, targetName);
 
     const duplicatePlanned = plannedLogicalTargets.get(targetLogicalKey);
     if (duplicatePlanned) {
@@ -278,8 +255,9 @@ async function planMatchingCoverArtRenames(
     }
 
     const existingCollision = imageEntries.find((existing) => {
-      if (existing.toLocaleLowerCase() === sourceLower) return false;
-      if (path.parse(existing).name.toLocaleLowerCase() !== targetLogicalKey) {
+      if (existing.dir !== file.dir) return false;
+      if (existing.name.toLocaleLowerCase() === sourceLower) return false;
+      if (slotKey(existing.dir, existing.name) !== targetLogicalKey) {
         return false;
       }
       // A leftover GameID-keyed file is a fallback, not a blocker for the
@@ -289,7 +267,7 @@ async function planMatchingCoverArtRenames(
     if (existingCollision) {
       if (kind === "fallback") {
         log.verbose(
-          `Skipping fallback artwork ${name}; ${existingCollision} already occupies ${targetName}`
+          `Skipping fallback artwork ${name}; ${existingCollision.name} already occupies ${targetName}`
         );
         continue;
       }
@@ -297,7 +275,7 @@ async function planMatchingCoverArtRenames(
         operations: [],
         message:
           'Cannot normalize artwork because "' +
-          existingCollision +
+          existingCollision.name +
           '" already occupies the target slot for "' +
           targetName +
           '".',
@@ -306,8 +284,8 @@ async function planMatchingCoverArtRenames(
 
     plannedLogicalTargets.set(targetLogicalKey, { sourceName: name, kind });
     operations.push({
-      sourcePath: path.join(artDir, name),
-      targetPath: path.join(artDir, targetName),
+      sourcePath: file.path,
+      targetPath: path.join(file.dir, targetName),
       sourceName: name,
       targetName,
     });

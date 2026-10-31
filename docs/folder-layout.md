@@ -15,6 +15,8 @@ OPL_ROOT/
 ├── POPS/   — PS1 discs (.vcd) and POPStarter launchers (.elf) + POPS VMCs
 ├── APPS/   — Homebrew apps (one folder each, with title.cfg)
 ├── ART/    — Artwork (GAMEID_COV.png, GAMEID_ICO.png, GAMEID_SCR.png)
+│   ├── PSBBN/  — LUNA square art (GAMEID.png) — optional, ignored by OPL
+│   └── SCROLL/ — LUNA scroll logos (GAMEID_LGO.png) — optional, ignored by OPL
 ├── CFG/    — Per-game OPL settings (GAMEID.cfg)
 └── VMC/    — Virtual memory cards (.bin)
 ```

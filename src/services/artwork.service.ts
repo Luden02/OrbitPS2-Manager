@@ -17,6 +17,45 @@ export type ArtDownloader = (url: string, fileName: string) => Promise<Buffer>;
  */
 const DOWNLOAD_TIMEOUT_MS = 30_000;
 
+/** Flat art database behind LUNA's square covers. */
+const PSBBN_ART_BASE_URL =
+  "https://raw.githubusercontent.com/CosmicScale/psbbn-art-database/refs/heads/main/art";
+
+/**
+ * The two assets LUNA reads that OPL does not. Both live in their own
+ * sub-folder of `ART/`, so they never collide with the flat OPL files and OPL
+ * itself never sees them.
+ *
+ * - `PSBBN` is the 256x256 square cover from the PSBBN art database, saved
+ *   under the identity alone (`ART/PSBBN/<name>.png`) — the name LUNA looks up.
+ *   It is the one asset served as truecolor rather than 8-bit indexed PNG and
+ *   already arrives at the size LUNA wants, so it is written as downloaded.
+ * - `SCROLL` is the same logo the OPL database already serves, written a second
+ *   time as `ART/SCROLL/<name>_LGO.png` for LUNA's Scroll view. A user can have
+ *   one of the two without the other, which is why it is its own type.
+ */
+const LUNA_ART_TYPES: Record<
+  string,
+  {
+    subDir: string;
+    fileName: (localName: string) => string;
+    /** OPL-database type to fetch; omitted when `url` supplies its own source. */
+    remoteType?: string;
+    url?: (gameId: string) => string;
+  }
+> = {
+  PSBBN: {
+    subDir: "PSBBN",
+    fileName: (localName) => `${localName}.png`,
+    url: (gameId) => `${PSBBN_ART_BASE_URL}/${gameId}.png`,
+  },
+  SCROLL: {
+    subDir: "SCROLL",
+    fileName: (localName) => `${localName}_LGO.png`,
+    remoteType: "LGO",
+  },
+};
+
 async function downloadBuffer(url: string, fileName: string): Promise<Buffer> {
   return new Promise<Buffer>((resolve, reject) => {
     const request = https.get(url, (res) => {
@@ -80,8 +119,21 @@ export async function downloadArtByGameId(
   const types = artTypes ?? ["COV", "ICO", "SCR"];
   const results: any[] = [];
   const localName = saveAsName || gameId;
-  /** Remote files already written by an earlier type of this call. */
-  const claimed = new Set<string>();
+  /**
+   * Remote files already written by an earlier type of this call, per
+   * destination folder. Kept per folder so the LUNA sub-folders stay
+   * independent: `SCROLL` writes the very same logo file the root `LGO` slot
+   * does, and one must not drop the other's only candidate.
+   */
+  const claimedByDir = new Map<string, Set<string>>();
+  const claimedIn = (dir: string): Set<string> => {
+    let set = claimedByDir.get(dir);
+    if (!set) {
+      set = new Set<string>();
+      claimedByDir.set(dir, set);
+    }
+    return set;
+  };
 
   log.info(
     `Downloading ${system} artwork for ${gameId} (${types.join(", ")}) into ${dirPath}`
@@ -92,6 +144,16 @@ export async function downloadArtByGameId(
   // is the first thing to find the folder missing.
   try {
     await fs.mkdir(dirPath, { recursive: true });
+    // LUNA reads its two assets from sub-folders that do not exist on a plain
+    // OPL drive, so they are created alongside ART/ when such a type is asked for.
+    const subDirs = types
+      .map((type) => LUNA_ART_TYPES[type]?.subDir)
+      .filter(
+        (sub, index, all): sub is string => !!sub && all.indexOf(sub) === index
+      );
+    for (const sub of subDirs) {
+      await fs.mkdir(path.join(dirPath, sub), { recursive: true });
+    }
   } catch (err: any) {
     const message = `Could not create artwork folder ${dirPath}: ${err.message}`;
     log.error(message);
@@ -103,13 +165,26 @@ export async function downloadArtByGameId(
   }
 
   for (const type of types) {
-    const candidates = wideSlotFallback
-      ? artSlotFileNames(gameId, type, claimed)
-      : artRemoteFileNames(gameId, type, claimed);
+    const luna = LUNA_ART_TYPES[type];
+    const destDir = luna ? path.join(dirPath, luna.subDir) : dirPath;
+    const claimed = claimedIn(destDir);
     // OPL only reads the base asset file, so an indexed code (e.g. `SCR_05`)
-    // is fetched by code but written under the base name it maps to.
-    const saveType = saveAsByType?.[type] ?? type;
-    const savePath = path.join(dirPath, `${localName}_${saveType}.png`);
+    // is fetched by code but written under the base name it maps to. The
+    // overrides are an OPL slot concept — a LUNA asset has one fixed name, so
+    // it takes the type it is fetched and normalized as instead.
+    const saveType = luna
+      ? (luna.remoteType ?? type)
+      : (saveAsByType?.[type] ?? type);
+    const remoteType = luna?.remoteType ?? type;
+    const candidates = luna?.url
+      ? [`${gameId}.png`]
+      : wideSlotFallback
+        ? artSlotFileNames(gameId, remoteType, claimed)
+        : artRemoteFileNames(gameId, remoteType, claimed);
+    const savePath = path.join(
+      destDir,
+      luna ? luna.fileName(localName) : `${localName}_${saveType}.png`
+    );
     let lastUrl = "";
     let lastError: Error | null = null;
     let saved = false;
@@ -121,7 +196,7 @@ export async function downloadArtByGameId(
     }
 
     for (const fileName of candidates) {
-      const url = `${baseUrl}/${gameId}/${fileName}`;
+      const url = luna?.url ? luna.url(gameId) : `${baseUrl}/${gameId}/${fileName}`;
       lastUrl = url;
       log.verbose(`GET ${url}`);
 
@@ -181,7 +256,11 @@ export async function downloadArtByGameId(
       results.push({
         name: localName,
         type,
-        source: fileName.slice(gameId.length + 1).replace(/\.png$/i, ""),
+        // Which database variant filled the slot. A file that is not named
+        // `<gameId>_<code>` (LUNA's square cover) has no variant to report.
+        source: fileName.startsWith(`${gameId}_`)
+          ? fileName.slice(gameId.length + 1).replace(/\.png$/i, "")
+          : "",
         url,
         savedPath: savePath,
       });
@@ -219,9 +298,90 @@ export interface AvailableArtEntry {
   downloadUrl: string;
 }
 
+/**
+ * The game's square cover in the PSBBN database, or null when it holds none.
+ *
+ * A HEAD is enough — the single-game wizard only needs to know the file is
+ * there, and the raw host answers without the GitHub API's rate limit. A failed
+ * probe only means the square cover cannot be offered this time; it never costs
+ * the caller its OPL listing.
+ */
+async function psbbnArtEntry(gameId: string): Promise<AvailableArtEntry | null> {
+  const fileName = `${gameId}.png`;
+  const url = `${PSBBN_ART_BASE_URL}/${fileName}`;
+  log.verbose(`HEAD ${url}`);
+
+  try {
+    const status = await new Promise<number>((resolve, reject) => {
+      const request = https.request(url, { method: "HEAD" }, (res) => {
+        res.resume();
+        resolve(res.statusCode ?? 0);
+      });
+      request.setTimeout(DOWNLOAD_TIMEOUT_MS, () => {
+        request.destroy(new Error(`Timed out checking ${fileName}`));
+      });
+      request.on("error", reject);
+      request.end();
+    });
+    return status === 200 ? { type: "PSBBN", fileName, downloadUrl: url } : null;
+  } catch (err: any) {
+    log.verbose(`PSBBN art probe failed for ${gameId}: ${err.message}`);
+    return null;
+  }
+}
+
+/**
+ * Every asset the databases hold for one game, OPL's and LUNA's alike.
+ *
+ * The scroll logo needs no lookup of its own: it is the OPL logo written to a
+ * second place, so it is offered exactly when that logo exists. The square
+ * cover comes from a different database and is probed alongside the OPL
+ * listing. A failed OPL listing (a rate limit, most often) is reported as it
+ * stands rather than half-answered from the other database.
+ */
 export async function listAvailableArt(
   gameId: string,
   system: "PS1" | "PS2" = "PS2"
+): Promise<{ success: boolean; data: AvailableArtEntry[]; message?: string }> {
+  const [opl, psbbn] = await Promise.all([
+    listOplArt(gameId, system),
+    psbbnArtEntry(gameId),
+  ]);
+  if (!opl.success) return opl;
+
+  const data = withLunaArt(opl.data, psbbn);
+  // Keeps the "nothing available yet" message the OPL listing produced.
+  if (data.length === 0) return opl;
+  return { success: true, data };
+}
+
+/**
+ * Folds LUNA's assets into an OPL listing.
+ *
+ * The scroll logo is offered exactly when the OPL logo is — it is the same
+ * image written to a second place, so it carries that entry's file and preview
+ * URL rather than a lookup of its own.
+ */
+export function withLunaArt(
+  oplEntries: AvailableArtEntry[],
+  psbbn: AvailableArtEntry | null
+): AvailableArtEntry[] {
+  const logo = oplEntries.find((entry) => entry.type.toUpperCase() === "LGO");
+  const data = [...oplEntries];
+  if (logo) {
+    data.push({
+      type: "SCROLL",
+      fileName: logo.fileName,
+      downloadUrl: logo.downloadUrl,
+    });
+  }
+  if (psbbn) data.push(psbbn);
+  return data;
+}
+
+async function listOplArt(
+  gameId: string,
+  system: "PS1" | "PS2"
 ): Promise<{ success: boolean; data: AvailableArtEntry[]; message?: string }> {
   const url = `https://api.github.com/repos/Luden02/psx-ps2-opl-art-database/contents/${system}/${gameId}`;
   log.verbose(`GET ${url}`);

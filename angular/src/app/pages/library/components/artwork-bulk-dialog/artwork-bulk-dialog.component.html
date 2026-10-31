@@ -258,10 +258,19 @@
                     "
                   />
                   <span class="min-w-0">
-                    <span class="block text-sm">{{ artTypeLabel(type) }}</span>
+                    <span class="flex items-center gap-1.5 text-sm">
+                      <span class="truncate">{{ artTypeLabel(type) }}</span>
+                      @if (isLunaOnlyType(type)) {
+                        <span
+                          class="shrink-0 rounded-full bg-base-content/10 px-1.5 text-[0.58rem] font-semibold uppercase tracking-wide text-base-content/60"
+                          title="Read by LUNA / NHDDL only — Open PS2 Loader ignores it"
+                          >LUNA</span
+                        >
+                      }
+                    </span>
                     <span
-                      class="block font-mono text-[0.65rem] text-base-content/40"
-                      >_{{ type }}.png</span
+                      class="block truncate font-mono text-[0.65rem] text-base-content/40"
+                      >{{ artFileHint(type) }}</span
                     >
                   </span>
                 </label>
@@ -272,7 +281,7 @@
             >
               <i-lucide name="info" size="13"></i-lucide>
               Missing variants are downloaded under the closest available match
-              and renamed for OPL.
+              and renamed for OPL. LUNA assets go to their own ART sub-folders.
             </p>
           </div>
 

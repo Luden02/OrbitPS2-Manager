@@ -3,6 +3,7 @@ import { BehaviorSubject, Observable, map } from 'rxjs';
 import { LogsService } from './logs.service';
 import { LibraryService } from './library.service';
 import { ConfirmDialogService } from './confirm-dialog.service';
+import { artFileForType } from '@shared/constants/artwork-presets';
 
 /** A single line of progress shown in a job's live log. */
 export type JobLogType = 'info' | 'step' | 'success' | 'error';
@@ -424,7 +425,7 @@ export class JobsService {
     const types = job.artTypes?.length ? job.artTypes : ['COV', 'ICO', 'SCR'];
     const artTargets = types.map((type) => ({
       type,
-      file: `${localName}_${artSaveOverrides[type] ?? type}.png`,
+      file: artFileForType(type, localName, artSaveOverrides[type] ?? type),
     }));
 
     this.logJob(

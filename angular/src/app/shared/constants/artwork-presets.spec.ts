@@ -1,4 +1,6 @@
 import {
+  artCategoryForType,
+  artFileForType,
   artSaveNameCandidates,
   artSaveNamesForSelection,
   isScreenshotArtCode,
@@ -94,5 +96,42 @@ describe('isScreenshotArtCode', () => {
     expect(isScreenshotArtCode('BG_00')).toBe(false);
     expect(isScreenshotArtCode('COV')).toBe(false);
     expect(isScreenshotArtCode('LGO')).toBe(false);
+  });
+});
+
+describe('artFileForType', () => {
+  it('keeps OPL assets flat under ART/', () => {
+    expect(artFileForType('COV', 'SLUS_200.01')).toBe('SLUS_200.01_COV.png');
+  });
+
+  it('honours the save-name override for an indexed OPL code', () => {
+    expect(artFileForType('SCR_05', 'SLUS_200.01', 'SCR2')).toBe(
+      'SLUS_200.01_SCR2.png',
+    );
+  });
+
+  it('puts the LUNA square cover in its own folder with no type suffix', () => {
+    expect(artFileForType('PSBBN', 'SLUS_200.01')).toBe(
+      'PSBBN/SLUS_200.01.png',
+    );
+  });
+
+  it('keeps the scroll logo apart from the flat OPL logo', () => {
+    expect(artFileForType('SCROLL', 'SLUS_200.01')).toBe(
+      'SCROLL/SLUS_200.01_LGO.png',
+    );
+    expect(artFileForType('LGO', 'SLUS_200.01')).toBe('SLUS_200.01_LGO.png');
+  });
+});
+
+describe('artCategoryForType', () => {
+  it('still groups indexed database variants by prefix', () => {
+    expect(artCategoryForType('SCR_05')).toBe('screenshots');
+    expect(artCategoryForType('BG_02')).toBe('backgrounds');
+  });
+
+  it('does not read SCROLL as a screenshot because of its prefix', () => {
+    expect(artCategoryForType('SCROLL')).toBe('luna');
+    expect(artCategoryForType('PSBBN')).toBe('luna');
   });
 });

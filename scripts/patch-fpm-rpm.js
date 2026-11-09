@@ -1,3 +1,4 @@
+const { execFileSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -11,8 +12,16 @@ const FIXED = '"--buildroot", "#{build_path}/BUILD",';
 
 if (process.platform !== 'darwin') process.exit(0);
 
+// On a cold cache electron-builder only downloads fpm mid-build, after this
+// script ran, so fetch it up front with the same tool (a no-op when cached).
+const FPM = 'fpm-1.9.3-20150715-2.2.2-mac';
+execFileSync(require('app-builder-bin').appBuilderPath, [
+  'download-artifact',
+  '--name', FPM,
+  '--url', `https://github.com/electron-userland/electron-builder-binaries/releases/download/${FPM}/${FPM}.7z`,
+], { stdio: ['ignore', 'ignore', 'inherit'], env: { ...process.env, SZA_PATH: require('7zip-bin').path7za } });
+
 const cacheDir = path.join(os.homedir(), 'Library', 'Caches', 'electron-builder', 'fpm');
-if (!fs.existsSync(cacheDir)) process.exit(0);
 
 for (const entry of fs.readdirSync(cacheDir)) {
   const rpmRb = path.join(cacheDir, entry, 'lib/app/lib/fpm/package/rpm.rb');

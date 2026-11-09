@@ -1,6 +1,6 @@
 import { ipcMain } from "electron";
 import path from "path";
-import { getSettings } from "../services/settings.service";
+import { getEmberGamesDirs, getSettings } from "../services/settings.service";
 import {
   renamePs1LauncherStep1,
   renamePs1LauncherStep2,
@@ -96,15 +96,7 @@ export function registerRenameIpc(): void {
           equalPath(path.dirname(sourcePath), path.join(root, "POPS")) &&
           path.extname(sourcePath).toLocaleLowerCase() === ".vcd";
       } else {
-        const defaultGames = path.join(root, "EMBER", "games");
-        const configured =
-          settings.emberDirectories?.[settings.lastDirectory] ??
-          settings.emberDirectories?.[root];
-        const configuredGames = configured
-          ? path.basename(path.resolve(configured)).toLocaleLowerCase() === "games"
-            ? path.resolve(configured)
-            : path.join(path.resolve(configured), "games")
-          : undefined;
+        const { defaultGames, configuredGames } = getEmberGamesDirs(settings.lastDirectory);
         sourceAllowed =
           equalPath(path.dirname(sourcePath), defaultGames) ||
           (!!configuredGames && equalPath(path.dirname(sourcePath), configuredGames));

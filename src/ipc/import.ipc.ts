@@ -44,7 +44,7 @@ export function registerImportIpc(): void {
       downloadArtwork: boolean,
       gameId?: string,
       gameName?: string,
-      launcherMode?: "popstarter" | "popsloader"
+      launcherMode?: "popstarter" | "popsloader" | "ember"
     ) => {
       return importPs1Game(
         cueFilePath,

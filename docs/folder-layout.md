@@ -13,6 +13,7 @@ OPL_ROOT/
 ├── DVD/    — PS2 DVD-format games (.iso / .zso)
 ├── VCD/    — PS1 games (.vcd) — RiptOPL/POPSLoader-style, launcher-free
 ├── POPS/   — PS1 discs (.vcd) and POPStarter launchers (.elf) + POPS VMCs
+├── EMBER/games/ — PS1 games for Ember (one folder per game with .cue/.bin)
 ├── APPS/   — Homebrew apps (one folder each, with title.cfg)
 ├── ART/    — Artwork (GAMEID_COV.png, GAMEID_ICO.png, GAMEID_SCR.png)
 │   ├── PSBBN/  — LUNA square art (GAMEID.png) — optional, ignored by OPL

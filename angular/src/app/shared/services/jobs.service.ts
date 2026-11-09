@@ -47,9 +47,10 @@ export interface ImportJob {
   /**
    * PS1 only: launcher style. "popstarter" (default) creates an APPS
    * launcher and names the VCD "<GameID>.<Title>.VCD"; "popsloader" skips
-   * the launcher entirely and names the VCD just "<Title>.VCD".
+   * the launcher entirely and names the VCD just "<Title>.VCD"; "ember"
+   * skips conversion and copies the BIN/CUE into EMBER/games/<Title>/.
    */
-  launcherMode?: 'popstarter' | 'popsloader';
+  launcherMode?: 'popstarter' | 'popsloader' | 'ember';
   /** Artwork only: which art database to pull from (defaults to PS2). */
   system?: 'PS1' | 'PS2';
   /**

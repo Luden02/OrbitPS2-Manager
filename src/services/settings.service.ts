@@ -15,7 +15,7 @@ export interface AppSettings {
   /** Re-mount the last directory automatically on launch. */
   autoReconnect: boolean;
   /** Last-picked PS1 launcher style on the Import screen. */
-  ps1LauncherMode?: "popstarter" | "popsloader";
+  ps1LauncherMode?: "popstarter" | "popsloader" | "ember";
   /** Optional Ember root/games folder overrides keyed by mounted OPL root. */
   emberDirectories?: Record<string, string>;
   /** UI color theme. "system" follows the OS light/dark preference (OrbitPS2 only). */
@@ -67,4 +67,24 @@ export function directoryExists(dirPath: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Ember games directories for a library root: the default <root>/EMBER/games
+ * and the user-configured override (EMBER/ itself or its games/ folder), if any.
+ */
+export function getEmberGamesDirs(root: string): {
+  defaultGames: string;
+  configuredGames?: string;
+} {
+  const settings = getSettings();
+  const resolvedRoot = path.resolve(root);
+  const configured =
+    settings.emberDirectories?.[root] ?? settings.emberDirectories?.[resolvedRoot];
+  const configuredGames = configured
+    ? path.basename(path.resolve(configured)).toLocaleLowerCase() === "games"
+      ? path.resolve(configured)
+      : path.join(path.resolve(configured), "games")
+    : undefined;
+  return { defaultGames: path.join(resolvedRoot, "EMBER", "games"), configuredGames };
 }

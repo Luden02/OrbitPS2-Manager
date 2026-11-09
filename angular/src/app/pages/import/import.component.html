@@ -74,6 +74,12 @@
             and saves it as "&lt;Title&gt;.VCD" directly in the POPS folder —
             no APPS launcher is created.</span
           >
+          } @else if (launcherMode === 'ember') {
+          <span
+            >PS1 import copies the BIN/CUE as-is into its own folder under
+            EMBER/games — no VCD conversion. Multi-BIN dumps are merged into
+            a single BIN.</span
+          >
           } @else {
           <span
             >PS1 import converts BIN/CUE to VCD format, detects the game ID,
@@ -159,6 +165,22 @@
                 <span class="block text-[0.68rem] text-base-content/55">
                   No launcher app. VCD is named "&lt;Title&gt;.VCD" so
                   POPSLoader's disc-swap and per-game files work correctly.
+                </span>
+              </span>
+            </label>
+            <label class="flex cursor-pointer items-start gap-2">
+              <input
+                type="radio"
+                name="radio-launchermode"
+                class="radio radio-primary radio-sm mt-0.5"
+                [checked]="launcherMode === 'ember'"
+                (change)="setLauncherMode('ember')"
+              />
+              <span class="leading-tight">
+                <span class="text-sm">Ember</span>
+                <span class="block text-[0.68rem] text-base-content/55">
+                  No conversion. BIN/CUE goes into
+                  "EMBER/games/&lt;Title&gt;/".
                 </span>
               </span>
             </label>

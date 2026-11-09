@@ -35,7 +35,7 @@ Go to the **Import** page and follow the three steps:
    |------|---------|--------------|
    | **PS2 DVD** | `.iso` / `.zso` | Copied into `DVD/` |
    | **PS2 CD** | `.bin` / `.cue` | Converted to a single `.iso` in `CD/` |
-   | **PS1 / POPS** | `.cue` / `.zip` | Converted to `.vcd`, plus a launcher (see below) |
+   | **PS1 / POPS** | `.cue` / `.zip` | Converted to `.vcd` (plus a launcher), or copied as-is for Ember (see below) |
    | **App / Homebrew** | `.elf` | Copied into its own `APPS/` folder with a `title.cfg` launcher |
 
 2. **Set options:**
@@ -44,6 +44,7 @@ Go to the **Import** page and follow the three steps:
    - *(PS1)* **Launcher style**:
      - **POPStarter** (default) — auto-generates a POPStarter launcher in `APPS/`; the game shows up under the **Apps** tab.
      - **RiptOPL / POPSLoader** — puts the `.vcd` straight into `POPS/`/`VCD/` with no separate launcher; the game shows up under the **PS1** tab.
+     - **Ember** — no conversion: the `.bin`/`.cue` goes into its own `EMBER/games/<Title>/` folder (multi-BIN dumps are merged into one `.bin`); the game shows up under the **PS1** tab.
    - *(PS1, POPStarter style only)* **POPStarter prefix** — `XX.` for USB / MX4SIO, or `SB.` for an SMB network share.
 
 3. **Select files & review** — add one or many files. The app auto-detects the game ID and name by reading each disc; if something can't be resolved it's flagged so you can fill it in manually. Click **Import** and watch the queued progress.

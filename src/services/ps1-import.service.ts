@@ -12,6 +12,7 @@ import {
 } from "../utils/sanitize";
 import { describeFileAccessError } from "../utils/file-access-error";
 import { getAssetsDir } from "../utils/resource-path";
+import { getEmberGamesDirs } from "./settings.service";
 import { createLogger } from "../logger";
 
 const log = createLogger("ps1-import");
@@ -73,6 +74,58 @@ export async function findPopstarterElf(): Promise<string | null> {
   return null;
 }
 
+/**
+ * Places a BIN/CUE in its own Ember game folder and returns that folder.
+ * Multi-BIN dumps are merged into one BIN: Ember documents CD-audio track
+ * support, but not CUEs that reference several files. An existing folder is
+ * never touched, and a half-written new one is removed on failure.
+ */
+async function installEmberGame(
+  cuePath: string,
+  oplRoot: string,
+  sanitizedName: string,
+  onProgress?: (percent: number, stage: string) => void
+): Promise<string> {
+  const { defaultGames, configuredGames } = getEmberGamesDirs(oplRoot);
+  const gamesDir = configuredGames ?? defaultGames;
+  const folder = path.join(gamesDir, sanitizeRiptOplPs1StorageName(sanitizedName, "EMBER"));
+
+  const cueSheet = await parseCueSheet(cuePath);
+  if (!cueSheet.files.length) {
+    throw new Error("The CUE sheet does not reference any BIN file.");
+  }
+
+  await fs.mkdir(gamesDir, { recursive: true });
+  try {
+    await fs.mkdir(folder);
+  } catch (err: any) {
+    if (err?.code === "EEXIST") {
+      throw new Error(`An Ember game folder named "${path.basename(folder)}" already exists.`);
+    }
+    throw err;
+  }
+
+  try {
+    if (cueSheet.files.length > 1) {
+      if (onProgress) onProgress(5, "Merging multi-BIN files");
+      log.verbose(`Merging ${cueSheet.files.length} BIN files into ${folder}`);
+      await mergeMultiBin(cuePath, folder, onProgress);
+    } else {
+      if (onProgress) onProgress(10, "Copying BIN/CUE");
+      const binName = cueSheet.files[0].filename;
+      await fs.copyFile(
+        path.join(getCueDirectory(cuePath), binName),
+        path.join(folder, path.basename(binName))
+      );
+      await fs.copyFile(cuePath, path.join(folder, path.basename(cuePath)));
+    }
+  } catch (err) {
+    await fs.rm(folder, { recursive: true, force: true }).catch(() => undefined);
+    throw err;
+  }
+  return folder;
+}
+
 export interface ImportPs1Result {
   success: boolean;
   message?: string;
@@ -89,7 +142,7 @@ export async function importPs1Game(
   downloadArtwork: boolean,
   overrideGameId?: string,
   overrideGameName?: string,
-  launcherMode: "popstarter" | "popsloader" = "popstarter",
+  launcherMode: "popstarter" | "popsloader" | "ember" = "popstarter",
   onProgress?: (percent: number, stage: string) => void
 ): Promise<ImportPs1Result> {
   let zipTempDir: string | null = null;
@@ -124,7 +177,76 @@ export async function importPs1Game(
       resolvedCueFilePath = extracted.cuePath;
     }
 
-    // Step 1: Check if multi-BIN and merge if needed
+    // Step 1: Resolve game ID + name (use overrides if provided, else detect).
+    // Detection reads the data track straight from the picked CUE, so it
+    // works before any multi-BIN merge.
+    if (onProgress) onProgress(3, "Detecting PS1 game ID");
+
+    let gameId = overrideGameId?.trim();
+    let gameName = overrideGameName?.trim();
+    const idResult = await tryDeterminePs1GameIdFromHex(resolvedCueFilePath);
+    const identificationStatus =
+      idResult.identificationStatus ??
+      (idResult.success ? "identified" : "unidentified");
+    const manualIdentityOverride = !!gameId && !!gameName;
+    const canDownloadArtwork =
+      identificationStatus === "identified" || manualIdentityOverride;
+
+    if (idResult.success && idResult.gameId) {
+      if (!gameId) gameId = idResult.gameId;
+      if (
+        !gameName &&
+        identificationStatus === "identified" &&
+        idResult.gameName
+      ) {
+        gameName = idResult.gameName;
+      }
+      if (identificationStatus === "ambiguous") {
+        log.warn(
+          `PS1 import: ${idResult.message || "shared serial could not be resolved"} — preserving the disc without automatic canonical naming/artwork`,
+        );
+      }
+    } else {
+      log.verbose(
+        `PS1 import: ${idResult.message || "could not determine game ID"} — treating as homebrew`,
+      );
+    }
+
+    if (!gameName) {
+      gameName = path.basename(resolvedCueFilePath, path.extname(resolvedCueFilePath));
+    }
+    const sanitizedName = sanitizeGameFilename(gameName);
+
+    if (launcherMode === "ember") {
+      const emberFolder = await installEmberGame(
+        resolvedCueFilePath,
+        oplRoot,
+        sanitizedName,
+        onProgress
+      );
+      if (downloadArtwork && canDownloadArtwork && gameId) {
+        if (onProgress) onProgress(93, "Downloading artwork");
+        try {
+          // RiptOPL keys Ember artwork by the game-folder name.
+          await downloadArtByGameId(artDir, gameId, "PS1", path.basename(emberFolder), ["COV"]);
+        } catch {
+          // Art download failure is non-critical
+        }
+      }
+      if (onProgress) onProgress(100, "Import complete");
+      log.info(`PS1 import complete: ${gameId ?? "no ID"} (${gameName}) → ${emberFolder}`);
+      return { success: true, gameId, gameName, identificationStatus };
+    }
+
+    // VCD conversion has no dependency on a real Sony-registered ID, so
+    // homebrew discs get an auto-assigned one for the "<GameID>." prefix.
+    if (!gameId) {
+      gameId = await generateHomebrewGameId(popsDir);
+      log.info(`No registered PS1 game ID found — auto-assigned homebrew ID ${gameId}`);
+    }
+    log.verbose(`Resolved PS1 game ${gameId} (${gameName})`);
+
+    // Step 2: Check if multi-BIN and merge if needed
     const cueSheet = await parseCueSheet(resolvedCueFilePath);
     let binPath: string;
     let cuePath: string;
@@ -150,52 +272,9 @@ export async function importPs1Game(
       cuePath = resolvedCueFilePath;
     }
 
-    // Step 2: Resolve game ID + name (use overrides if provided, else detect;
-    // fall back to an auto-assigned homebrew ID if neither works, since
-    // VCD conversion itself has no dependency on a real Sony-registered ID).
-    if (onProgress) onProgress(30, "Detecting PS1 game ID");
-
-    let gameId = overrideGameId?.trim();
-    let gameName = overrideGameName?.trim();
-    const idResult = await tryDeterminePs1GameIdFromHex(cuePath);
-    const identificationStatus =
-      idResult.identificationStatus ??
-      (idResult.success ? "identified" : "unidentified");
-    const manualIdentityOverride = !!gameId && !!gameName;
-
-    if (idResult.success && idResult.gameId) {
-      if (!gameId) gameId = idResult.gameId;
-      if (
-        !gameName &&
-        identificationStatus === "identified" &&
-        idResult.gameName
-      ) {
-        gameName = idResult.gameName;
-      }
-      if (identificationStatus === "ambiguous") {
-        log.warn(
-          `PS1 import: ${idResult.message || "shared serial could not be resolved"} — preserving the disc without automatic canonical naming/artwork`,
-        );
-      }
-    } else {
-      log.verbose(
-        `PS1 import: ${idResult.message || "could not determine game ID"} — treating as homebrew`,
-      );
-    }
-
-    if (!gameId) {
-      gameId = await generateHomebrewGameId(popsDir);
-      log.info(`No registered PS1 game ID found — auto-assigned homebrew ID ${gameId}`);
-    }
-    if (!gameName) {
-      gameName = path.basename(resolvedCueFilePath, path.extname(resolvedCueFilePath));
-    }
-    log.verbose(`Resolved PS1 game ${gameId} (${gameName})`);
-
     // Step 3: Convert BIN/CUE to VCD
     if (onProgress) onProgress(35, "Converting to VCD format");
 
-    const sanitizedName = sanitizeGameFilename(gameName);
     const vcdStem = sanitizeRiptOplPs1StorageName(
       launcherMode === "popsloader"
         ? sanitizedName
@@ -260,8 +339,6 @@ export async function importPs1Game(
 
     // Step 7: Download artwork only when disc identity is safe. A manual
     // game-ID + title override is explicit user input and may opt back in.
-    const canDownloadArtwork =
-      identificationStatus === "identified" || manualIdentityOverride;
     if (downloadArtwork && canDownloadArtwork) {
       if (onProgress) onProgress(93, "Downloading artwork");
       try {

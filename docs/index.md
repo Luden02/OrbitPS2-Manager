@@ -40,7 +40,7 @@ It was created to fill the gap left by OPLManager, which lacks macOS and Linux s
 
 - **PS2 DVD** — import `ISO` / `ZSO` images
 - **PS2 CD** — convert `CUE`/`BIN` (including multi-track) to a single `ISO`
-- **PS1** — convert `CUE`/`BIN`/`ZIP` to `VCD`, with a choice of launcher style (POPStarter or RiptOPL/POPSLoader)
+- **PS1** — convert `CUE`/`BIN`/`ZIP` to `VCD`, with a choice of launcher style (POPStarter or RiptOPL/POPSLoader), or copy it as-is for Ember
 - **APPS** — import homebrew `ELF` executables with a custom title
 - **Automatic game-ID detection** by scanning the disc image
 - **Queued batch imports** with live progress for long operations

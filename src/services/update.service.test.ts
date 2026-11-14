@@ -1,6 +1,18 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import PackageInfo from "../../package.json";
 import { checkForUpdates, isNewerVersion } from "./update.service";
+
+const CURRENT = PackageInfo.version;
+
+/** A version strictly newer than CURRENT, for "update available" fixtures. */
+function nextVersion(version: string): string {
+  const parts = version.split(".").map(Number);
+  parts[parts.length - 1] += 1;
+  return parts.join(".");
+}
+
+const NEXT = nextVersion(CURRENT);
 
 function release(tag: string, extra: { draft?: boolean; name?: string } = {}) {
   return {
@@ -31,9 +43,9 @@ async function withReleases(
 }
 
 test("a nightly prerelease channel does not hide the stable release behind it", async () => {
-  await withReleases([release("v1.3.2-nightly.1"), release("v1.3.1")], async () => {
+  await withReleases([release(`v${NEXT}-nightly.1`), release(`v${CURRENT}`)], async () => {
     const result = await checkForUpdates();
-    assert.equal(result.latestVersion, "1.3.1");
+    assert.equal(result.latestVersion, CURRENT);
     assert.equal(result.updateAvailable, false);
   });
 });
@@ -46,20 +58,20 @@ test("a rolling nightly release does not hide the stable release behind it", asy
     return {
       ok: true,
       status: 200,
-      json: async () => [release("nightly"), release("v1.3.2", { name: "1.3.2" })],
+      json: async () => [release("nightly"), release(`v${NEXT}`, { name: NEXT })],
     } as Response;
   };
   try {
     const result = await checkForUpdates();
     assert.equal(requested, "https://api.github.com/repos/Luden02/OrbitPS2-Manager/releases?per_page=10");
     assert.equal(result.updateAvailable, true);
-    assert.equal(result.latestVersion, "1.3.2");
-    assert.equal(result.releaseName, "1.3.2");
+    assert.equal(result.latestVersion, NEXT);
+    assert.equal(result.releaseName, NEXT);
     assert.equal(
       result.releaseUrl,
-      "https://github.com/Luden02/OrbitPS2-Manager/releases/tag/v1.3.2"
+      `https://github.com/Luden02/OrbitPS2-Manager/releases/tag/v${NEXT}`
     );
-    assert.equal(result.currentVersion, "1.3.1");
+    assert.equal(result.currentVersion, CURRENT);
     assert.equal(result.error, undefined);
   } finally {
     globalThis.fetch = original;
@@ -67,18 +79,18 @@ test("a rolling nightly release does not hide the stable release behind it", asy
 });
 
 test("the same stable version behind a nightly tag is not an update", async () => {
-  await withReleases([release("vNightly"), release("v1.3.1", { name: "" })], async () => {
+  await withReleases([release("vNightly"), release(`v${CURRENT}`, { name: "" })], async () => {
     const result = await checkForUpdates();
     assert.equal(result.updateAvailable, false);
-    assert.equal(result.latestVersion, "1.3.1");
-    assert.equal(result.releaseName, "v1.3.1");
+    assert.equal(result.latestVersion, CURRENT);
+    assert.equal(result.releaseName, `v${CURRENT}`);
   });
 });
 
 test("nightly-rc is ignored the same way shipped clients already ignore rc tags", async () => {
-  await withReleases([release("nightly-rc"), release("v1.3.2")], async () => {
+  await withReleases([release("nightly-rc"), release(`v${NEXT}`)], async () => {
     const result = await checkForUpdates();
-    assert.equal(result.latestVersion, "1.3.2");
+    assert.equal(result.latestVersion, NEXT);
     assert.equal(result.updateAvailable, true);
   });
 });
@@ -105,7 +117,7 @@ test("drafts and the other prerelease channels are skipped", async () => {
 test("no published release means there is nothing to install", async () => {
   await withReleases([release("nightly", { draft: true })], async () => {
     const result = await checkForUpdates();
-    assert.deepEqual(result, { updateAvailable: false, currentVersion: "1.3.1" });
+    assert.deepEqual(result, { updateAvailable: false, currentVersion: CURRENT });
   });
 });
 
@@ -113,7 +125,7 @@ test("a GitHub error is reported and offers no update", async () => {
   await withReleases([], async () => {
     const result = await checkForUpdates();
     assert.equal(result.updateAvailable, false);
-    assert.equal(result.currentVersion, "1.3.1");
+    assert.equal(result.currentVersion, CURRENT);
     assert.equal(result.error, "GitHub responded with 403");
   }, { ok: false, status: 403 });
 });

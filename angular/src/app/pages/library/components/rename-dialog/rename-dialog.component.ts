@@ -113,7 +113,7 @@ export class LibraryRenameDialogComponent implements OnInit {
   /** A POPSLoader/RiptOPL-style PS1 game — no APPS launcher, filename has no GameID prefix. */
   get isPs1NonLauncher(): boolean {
     const g = this.game();
-    return !!g && g.system === 'PS1' && !g.isPs1Launcher;
+    return !!g && g.system === 'PS1' && !g.isPs1Launcher && g.format !== 'EMBER';
   }
 
   get isPs1Game(): boolean {

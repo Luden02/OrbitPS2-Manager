@@ -1,6 +1,6 @@
 {
   "name": "orbitps2-manager",
-  "version": "1.3.1",
+  "version": "1.4.0",
   "description": "A modern, cross-platform way to manage your OPL game collection. ",
   "main": "dist/src/main.js",
   "author": "Luden",

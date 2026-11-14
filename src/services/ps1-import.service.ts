@@ -1,7 +1,7 @@
 import * as fs from "fs/promises";
 import path from "path";
 import { mergeMultiBin } from "../utils/binmerge";
-import { convertToVcd } from "../utils/cue2pops";
+import { convertToVcd, convertVcdToBin } from "../utils/cue2pops";
 import { parseCueSheet, getCueDirectory } from "../utils/cue-parser";
 import { extractDiscZip } from "../utils/zip-extract";
 import { tryDeterminePs1GameIdFromHex } from "./game-id-resolver.service";
@@ -13,6 +13,7 @@ import {
 import { describeFileAccessError } from "../utils/file-access-error";
 import { getAssetsDir } from "../utils/resource-path";
 import { getEmberGamesDirs } from "./settings.service";
+import { renameMatchingCoverArt, copyMatchingCoverArt } from "./rename.service";
 import { createLogger } from "../logger";
 
 const log = createLogger("ps1-import");
@@ -130,6 +131,7 @@ export interface ImportPs1Result {
   success: boolean;
   message?: string;
   vcdPath?: string;
+  elfFilename?: string;
   gameId?: string;
   gameName?: string;
   identificationStatus?: "identified" | "ambiguous" | "unidentified";
@@ -368,6 +370,7 @@ export async function importPs1Game(
     return {
       success: true,
       vcdPath,
+      elfFilename,
       gameId,
       gameName,
       identificationStatus,
@@ -387,5 +390,162 @@ export async function importPs1Game(
       }
     }
   }
+}
+
+export interface ConvertEmberResult {
+  success: boolean;
+  message?: string;
+  vcdPath?: string;
+}
+
+/**
+ * Converts an Ember-style PS1 game folder (EMBER/games/<folder>/*.cue+.bin)
+ * into a POPS/*.VCD, reusing the same BIN/CUE→VCD pipeline as a fresh import.
+ * Existing cover art (keyed by the Ember folder name) is renamed to the new
+ * VCD/launcher identity instead of being re-downloaded, and the Ember folder
+ * is only removed once the VCD exists.
+ */
+export async function convertEmberGameToVcd(
+  emberFolder: string,
+  oplRoot: string,
+  gameId: string,
+  gameName: string,
+  elfPrefix: string,
+  launcherMode: "popstarter" | "popsloader",
+  onProgress?: (percent: number, stage: string) => void
+): Promise<ConvertEmberResult> {
+  const entries = await fs.readdir(emberFolder, { withFileTypes: true }).catch(() => []);
+  const cue = entries.find((e) => e.isFile() && e.name.toLowerCase().endsWith(".cue"));
+  if (!cue) {
+    return { success: false, message: "No CUE sheet found in the Ember game folder." };
+  }
+
+  const importResult = await importPs1Game(
+    path.join(emberFolder, cue.name),
+    oplRoot,
+    elfPrefix,
+    false,
+    gameId,
+    gameName,
+    launcherMode,
+    (percent, stage) => onProgress?.(Math.round(percent * 0.9), stage)
+  );
+  if (!importResult.success || !importResult.vcdPath) {
+    return { success: false, message: importResult.message || "VCD conversion failed." };
+  }
+
+  onProgress?.(92, "Migrating artwork");
+  const artDir = path.join(oplRoot, "ART");
+  const oldIdentity = path.basename(emberFolder).toLowerCase();
+  const vcdStem = path.basename(
+    importResult.vcdPath,
+    path.extname(importResult.vcdPath)
+  );
+  const renamed = await renameMatchingCoverArt(
+    artDir,
+    (nameBeforeType) => nameBeforeType.toLowerCase() === oldIdentity,
+    vcdStem
+  );
+  if (renamed > 0 && importResult.elfFilename) {
+    await copyMatchingCoverArt(
+      artDir,
+      (nameBeforeType) => nameBeforeType.toLowerCase() === vcdStem.toLowerCase(),
+      importResult.elfFilename
+    );
+  }
+
+  onProgress?.(97, "Removing Ember game folder");
+  await fs.rm(emberFolder, { recursive: true, force: true });
+
+  onProgress?.(100, "Conversion complete");
+  log.info(`Ember→VCD conversion complete: ${emberFolder} → ${importResult.vcdPath}`);
+  return { success: true, vcdPath: importResult.vcdPath };
+}
+
+export interface ConvertToEmberResult {
+  success: boolean;
+  message?: string;
+  emberFolder?: string;
+}
+
+/**
+ * Converts a POPS/*.VCD PS1 game (POPStarter or POPSLoader style) into an
+ * Ember-style game folder (EMBER/games/<title>/*.bin+.cue). Existing cover
+ * art is renamed to the Ember folder identity instead of being re-downloaded.
+ * The APPS launcher (if any) and the source VCD are only removed once the
+ * BIN/CUE exists, so a failure anywhere leaves the original VCD in place.
+ */
+export async function convertVcdGameToEmber(
+  vcdPath: string,
+  oplRoot: string,
+  gameId: string,
+  gameName: string,
+  launcherFolder?: string,
+  onProgress?: (percent: number, stage: string) => void
+): Promise<ConvertToEmberResult> {
+  const sanitizedName = sanitizeGameFilename(gameName);
+  const { defaultGames, configuredGames } = getEmberGamesDirs(oplRoot);
+  const gamesDir = configuredGames ?? defaultGames;
+  const folder = path.join(gamesDir, sanitizeRiptOplPs1StorageName(sanitizedName, "EMBER"));
+
+  await fs.mkdir(gamesDir, { recursive: true });
+  try {
+    await fs.mkdir(folder);
+  } catch (err: any) {
+    if (err?.code === "EEXIST") {
+      return { success: false, message: `An Ember game folder named "${path.basename(folder)}" already exists.` };
+    }
+    return { success: false, message: describeFileAccessError(err) };
+  }
+
+  const binPath = path.join(folder, `${sanitizedName}.bin`);
+  const cuePath = path.join(folder, `${sanitizedName}.cue`);
+
+  try {
+    onProgress?.(5, "Converting VCD to BIN/CUE");
+    await convertVcdToBin(vcdPath, binPath, cuePath, (percent, stage) => {
+      onProgress?.(Math.round(5 + percent * 0.7), stage);
+    });
+  } catch (err: any) {
+    await fs.rm(folder, { recursive: true, force: true }).catch(() => undefined);
+    return { success: false, message: describeFileAccessError(err) };
+  }
+
+  onProgress?.(80, "Migrating artwork");
+  const artDir = path.join(oplRoot, "ART");
+  const vcdStem = path.basename(vcdPath, path.extname(vcdPath)).toLowerCase();
+  const newIdentity = path.basename(folder);
+  const renamed = await renameMatchingCoverArt(
+    artDir,
+    (nameBeforeType) => nameBeforeType.toLowerCase() === vcdStem,
+    newIdentity
+  );
+  if (renamed === 0) {
+    const gameIdLower = gameId.toLowerCase();
+    await renameMatchingCoverArt(
+      artDir,
+      (nameBeforeType) => nameBeforeType.toLowerCase() === gameIdLower,
+      newIdentity
+    );
+  }
+
+  if (launcherFolder) {
+    onProgress?.(90, "Removing APPS launcher");
+    try {
+      await fs.rm(launcherFolder, { recursive: true, force: true });
+    } catch (err: any) {
+      return {
+        success: false,
+        message: `Converted to Ember, but failed to remove the APPS launcher: ${describeFileAccessError(err)}`,
+      };
+    }
+  }
+
+  onProgress?.(95, "Removing source VCD");
+  await fs.unlink(vcdPath).catch(() => undefined);
+
+  onProgress?.(100, "Conversion complete");
+  log.info(`VCD→Ember conversion complete: ${vcdPath} → ${folder}`);
+  return { success: true, emberFolder: folder };
 }
 

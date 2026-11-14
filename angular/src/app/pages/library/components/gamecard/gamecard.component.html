@@ -76,6 +76,28 @@
             >
           </li>
         }
+        @if (canConvertToEmber()) {
+          <li>
+            <a (click)="convertToEmber()"
+              ><i-lucide name="refresh-cw" [size]="16"></i-lucide>Convert to
+              Ember</a
+            >
+          </li>
+        }
+        @if (canConvertEmber()) {
+          <li>
+            <a (click)="convertEmberToPopsLoader()"
+              ><i-lucide name="refresh-cw" [size]="16"></i-lucide>Convert to
+              POPSLoader</a
+            >
+          </li>
+          <li>
+            <a (click)="convertEmberToPopstarter()"
+              ><i-lucide name="refresh-cw" [size]="16"></i-lucide>Convert to
+              POPStarter</a
+            >
+          </li>
+        }
         @if (canRenameConvention()) {
           <li>
             <a (click)="openRename()"
@@ -173,6 +195,28 @@
               <a (click)="convertToBinCue()"
                 ><i-lucide name="file-output" [size]="16"></i-lucide>Convert to
                 BIN/CUE</a
+              >
+            </li>
+          }
+          @if (canConvertToEmber()) {
+            <li>
+              <a (click)="convertToEmber()"
+                ><i-lucide name="refresh-cw" [size]="16"></i-lucide>Convert to
+                Ember</a
+              >
+            </li>
+          }
+          @if (canConvertEmber()) {
+            <li>
+              <a (click)="convertEmberToPopsLoader()"
+                ><i-lucide name="refresh-cw" [size]="16"></i-lucide>Convert to
+                POPSLoader</a
+              >
+            </li>
+            <li>
+              <a (click)="convertEmberToPopstarter()"
+                ><i-lucide name="refresh-cw" [size]="16"></i-lucide>Convert to
+                POPStarter</a
               >
             </li>
           }

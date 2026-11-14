@@ -147,6 +147,95 @@ export class LibraryComponent {
     );
   }
 
+  private emberCandidates(): Game[] {
+    return this._libraryService.currentLibraryValue.filter(
+      (g) => g.format === 'EMBER' && g.path && g.gameId
+    );
+  }
+
+  /** Queues a POPSLoader-conversion job for every Ember-stored PS1 game. */
+  convertAllEmberToPopsLoader() {
+    const candidates = this.emberCandidates();
+    if (candidates.length === 0) {
+      window.alert('No Ember-style PS1 games to convert.');
+      return;
+    }
+    const confirmed = window.confirm(
+      `Convert ${candidates.length} Ember PS1 game(s) to POPSLoader style?\n\n` +
+      `Each BIN/CUE will be converted to a .vcd under POPS/ and the Ember game folder removed.`
+    );
+    if (!confirmed) return;
+    this._jobs.enqueue(
+      candidates.map((g) => ({
+        type: 'ps1-convert-ember',
+        label: g.title || g.gameId || g.filename,
+        filePath: g.path,
+        gameId: g.gameId,
+        gameName: g.title || g.gameId,
+        downloadArtwork: false,
+        launcherMode: 'popsloader',
+      }))
+    );
+  }
+
+  /** Queues a POPStarter-conversion job for every Ember-stored PS1 game. */
+  convertAllEmberToPopstarter() {
+    const candidates = this.emberCandidates();
+    if (candidates.length === 0) {
+      window.alert('No Ember-style PS1 games to convert.');
+      return;
+    }
+    const confirmed = window.confirm(
+      `Convert ${candidates.length} Ember PS1 game(s) to POPStarter style?\n\n` +
+      `Each BIN/CUE will be converted to a .vcd under POPS/, given an APPS launcher (device prefix "XX."), and the Ember game folder removed.`
+    );
+    if (!confirmed) return;
+    this._jobs.enqueue(
+      candidates.map((g) => ({
+        type: 'ps1-convert-ember',
+        label: g.title || g.gameId || g.filename,
+        filePath: g.path,
+        gameId: g.gameId,
+        gameName: g.title || g.gameId,
+        downloadArtwork: false,
+        launcherMode: 'popstarter',
+        elfPrefix: 'XX.',
+      }))
+    );
+  }
+
+  /** Queues an Ember-conversion job for every POPStarter/POPSLoader PS1 VCD. */
+  convertAllPs1ToEmber() {
+    const candidates = this._libraryService.currentLibraryValue.filter((g) => {
+      const isVcd =
+        g.format === 'VCD' ||
+        g.format === 'POPS' ||
+        g.extension?.toLowerCase() === '.vcd';
+      if (!isVcd || !g.path || !g.gameId) return false;
+      return g.system === 'PS1' || (g.system === 'APPS' && !!g.isPs1Launcher);
+    });
+    if (candidates.length === 0) {
+      window.alert('No PS1 VCD/POPS games to convert to Ember.');
+      return;
+    }
+    const confirmed = window.confirm(
+      `Convert ${candidates.length} PS1 game(s) to Ember (BIN/CUE) style?\n\n` +
+      `Each VCD will be converted to a BIN/CUE under EMBER/games/, its APPS launcher (if any) removed, and the original VCD deleted.`
+    );
+    if (!confirmed) return;
+    this._jobs.enqueue(
+      candidates.map((g) => ({
+        type: 'ps1-convert-to-ember',
+        label: g.title || g.gameId || g.filename,
+        filePath: g.path,
+        gameId: g.gameId,
+        gameName: g.title || g.gameId,
+        downloadArtwork: false,
+        launcherFolder: g.isPs1Launcher ? g.ps1LauncherPath : undefined,
+      }))
+    );
+  }
+
   private activeTabSubject = new BehaviorSubject<SystemTab>('PS2');
   public activeTab$ = this.activeTabSubject.asObservable();
   private sortModeSubject = new BehaviorSubject<SortMode>('title-asc');

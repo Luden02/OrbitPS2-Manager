@@ -135,13 +135,32 @@ export class GamecardComponent {
     return g.system === 'PS1' && isVcd;
   });
 
+  /** Whether an Ember-style PS1 game folder can be converted to a POPS/*.VCD. */
+  readonly canConvertEmber = computed(() => {
+    const g = this.game();
+    if (!g) return false;
+    return g.format === 'EMBER' && !!g.path && !!g.gameId;
+  });
+
+  /** Whether a POPStarter/POPSLoader PS1 VCD can be converted to Ember (BIN/CUE). */
+  readonly canConvertToEmber = computed(() => {
+    const g = this.game();
+    if (!g) return false;
+    const isVcd =
+      g.format === 'VCD' ||
+      g.format === 'POPS' ||
+      g.extension?.toLowerCase() === '.vcd';
+    if (!isVcd || !g.path || !g.gameId) return false;
+    return g.system === 'PS1' || (g.system === 'APPS' && !!g.isPs1Launcher);
+  });
+
   /** Whether the file can be renamed to the OPL naming convention. */
   readonly canRenameConvention = computed(() => {
     const g = this.game();
     if (!g) return false;
     const system = g.system ?? 'PS2';
     if (g.isPs1Launcher || system === 'PS1') {
-      return !!g.path && !!g.gameId && !!g.title;
+      return !!g.path && !!g.gameId && !!g.title && g.format !== 'EMBER';
     }
     return (
       system === 'PS2' &&
@@ -286,6 +305,82 @@ export class GamecardComponent {
         gameName: g.title || '',
         downloadArtwork: false,
         deleteOriginal: false,
+      },
+    ]);
+  }
+
+  /** Enqueue an Ember-folder -> POPS/*.VCD conversion job (POPSLoader style — no APPS launcher). */
+  async convertEmberToPopsLoader() {
+    const g = this.game();
+    if (!g || !this.canConvertEmber()) return;
+    const confirmed = await this._confirm.confirm({
+      title: 'Convert to POPSLoader',
+      message: `Convert "${g.title || g.gameId}" from Ember to a POPSLoader VCD?`,
+      detail:
+        'This converts the BIN/CUE to a .vcd under POPS/, migrates its cover art, and removes the Ember game folder once it succeeds.',
+      confirmLabel: 'Convert',
+    });
+    if (!confirmed) return;
+    this._jobs.enqueue([
+      {
+        type: 'ps1-convert-ember',
+        label: g.title || g.gameId || g.filename,
+        filePath: g.path,
+        gameId: g.gameId,
+        gameName: g.title || g.gameId,
+        downloadArtwork: false,
+        launcherMode: 'popsloader',
+      },
+    ]);
+  }
+
+  /** Enqueue an Ember-folder -> POPS/*.VCD conversion job (POPStarter style — with APPS launcher). */
+  async convertEmberToPopstarter() {
+    const g = this.game();
+    if (!g || !this.canConvertEmber()) return;
+    const confirmed = await this._confirm.confirm({
+      title: 'Convert to POPStarter',
+      message: `Convert "${g.title || g.gameId}" from Ember to a POPStarter VCD?`,
+      detail:
+        'This converts the BIN/CUE to a .vcd under POPS/, creates its APPS launcher, migrates its cover art, and removes the Ember game folder once it succeeds.',
+      confirmLabel: 'Convert',
+    });
+    if (!confirmed) return;
+    this._jobs.enqueue([
+      {
+        type: 'ps1-convert-ember',
+        label: g.title || g.gameId || g.filename,
+        filePath: g.path,
+        gameId: g.gameId,
+        gameName: g.title || g.gameId,
+        downloadArtwork: false,
+        launcherMode: 'popstarter',
+        elfPrefix: 'XX.',
+      },
+    ]);
+  }
+
+  /** Enqueue a VCD -> Ember (BIN/CUE) conversion job. */
+  async convertToEmber() {
+    const g = this.game();
+    if (!g || !this.canConvertToEmber()) return;
+    const confirmed = await this._confirm.confirm({
+      title: 'Convert to Ember',
+      message: `Convert "${g.title || g.gameId}" to Ember (BIN/CUE)?`,
+      detail:
+        'This converts the .vcd to a BIN/CUE under EMBER/games/, migrates its cover art, removes its APPS launcher if any, and deletes the source VCD once it succeeds.',
+      confirmLabel: 'Convert',
+    });
+    if (!confirmed) return;
+    this._jobs.enqueue([
+      {
+        type: 'ps1-convert-to-ember',
+        label: g.title || g.gameId || g.filename,
+        filePath: g.path,
+        gameId: g.gameId,
+        gameName: g.title || g.gameId,
+        downloadArtwork: false,
+        launcherFolder: g.isPs1Launcher ? g.ps1LauncherPath : undefined,
       },
     ]);
   }

@@ -138,6 +138,48 @@ declare interface Window {
     /** Remove all PS1-to-POPStarter conversion progress listeners. */
     removeAllConvertPs1PopstarterProgressListeners: () => void;
 
+    /**
+     * Converts an Ember-style PS1 game folder (EMBER/games/<folder>/*.cue+.bin)
+     * into a POPS/*.VCD via the normal import pipeline, migrating its existing
+     * cover art to the new identity and removing the Ember folder on success.
+     */
+    convertEmberToVcd: (
+      emberFolderPath: string,
+      gameId: string,
+      gameName: string,
+      elfPrefix: string,
+      launcherMode: 'popstarter' | 'popsloader',
+    ) => Promise<{ success: boolean; vcdPath?: string; message?: string }>;
+
+    /** Listen for Ember-to-VCD conversion progress events. */
+    onConvertEmberProgress: (
+      callback: (progress: { percent: number; stage: string }) => void,
+    ) => void;
+
+    /** Remove all Ember-to-VCD conversion progress listeners. */
+    removeAllConvertEmberProgressListeners: () => void;
+
+    /**
+     * Converts a POPS/*.VCD PS1 game (POPStarter or POPSLoader style) into an
+     * Ember-style game folder (EMBER/games/<title>/*.bin+.cue), migrating its
+     * cover art and removing the APPS launcher (if any) and the source VCD
+     * on success.
+     */
+    convertVcdToEmber: (
+      vcdPath: string,
+      gameId: string,
+      gameName: string,
+      launcherFolder?: string,
+    ) => Promise<{ success: boolean; emberFolder?: string; message?: string }>;
+
+    /** Listen for VCD-to-Ember conversion progress events. */
+    onConvertVcdToEmberProgress: (
+      callback: (progress: { percent: number; stage: string }) => void,
+    ) => void;
+
+    /** Remove all VCD-to-Ember conversion progress listeners. */
+    removeAllConvertVcdToEmberProgressListeners: () => void;
+
     /** Listen for PS1 delete progress events. */
     onDeletePs1Progress: (
       callback: (entry: {

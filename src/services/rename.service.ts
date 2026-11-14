@@ -62,7 +62,7 @@ async function renameVcdFile(
  * `matches`, tested against the filename portion before its `_TYPE` suffix)
  * to `<newBaseName>_TYPE.ext`, preserving each file's type suffix.
  */
-async function renameMatchingCoverArt(
+export async function renameMatchingCoverArt(
   artDir: string,
   matches: (nameBeforeType: string) => boolean,
   newBaseName: string,
@@ -115,7 +115,7 @@ async function renameMatchingCoverArt(
   return renamed;
 }
 
-async function copyMatchingCoverArt(
+export async function copyMatchingCoverArt(
   artDir: string,
   matches: (nameBeforeType: string) => boolean,
   newBaseName: string,

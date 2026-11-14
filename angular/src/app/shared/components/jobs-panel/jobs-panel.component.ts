@@ -44,6 +44,11 @@ export class JobsPanelComponent {
         return 'Artwork';
       case 'rename':
         return 'Rename';
+      case 'ps1-convert-popsloader':
+      case 'ps1-convert-popstarter':
+      case 'ps1-convert-ember':
+      case 'ps1-convert-to-ember':
+        return 'PS1 Convert';
       default:
         return 'PS2 DVD';
     }

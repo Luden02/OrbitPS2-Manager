@@ -25,7 +25,9 @@ export type ImportJobType =
   | 'artwork'
   | 'rename'
   | 'ps1-convert-popsloader'
-  | 'ps1-convert-popstarter';
+  | 'ps1-convert-popstarter'
+  | 'ps1-convert-ember'
+  | 'ps1-convert-to-ember';
 export type JobStatus =
   | 'queued'
   | 'running'
@@ -51,6 +53,8 @@ export interface ImportJob {
    * skips conversion and copies the BIN/CUE into EMBER/games/<Title>/.
    */
   launcherMode?: 'popstarter' | 'popsloader' | 'ember';
+  /** ps1-convert-to-ember only: APPS/POPS_* launcher folder to remove once the Ember BIN/CUE exists. */
+  launcherFolder?: string;
   /** Artwork only: which art database to pull from (defaults to PS2). */
   system?: 'PS1' | 'PS2';
   /**
@@ -378,6 +382,10 @@ export class JobsService {
         return this.runPs1ConvertPopsLoaderJob(job);
       case 'ps1-convert-popstarter':
         return this.runPs1ConvertPopstarterJob(job);
+      case 'ps1-convert-ember':
+        return this.runPs1ConvertEmberJob(job);
+      case 'ps1-convert-to-ember':
+        return this.runPs1ConvertToEmberJob(job);
       case 'ps2-dvd':
       default:
         return this.runPs2DvdJob(job, dirPath);
@@ -601,6 +609,45 @@ export class JobsService {
       job.gameName,
       job.elfPrefix || 'XX.',
     );
+  }
+
+  private async runPs1ConvertEmberJob(job: ImportJob) {
+    window.libraryAPI.onConvertEmberProgress((progress) =>
+      this.patchJob(job.id, {
+        percent: progress.percent,
+        stage: progress.stage,
+      }),
+    );
+    try {
+      return await window.libraryAPI.convertEmberToVcd(
+        job.filePath,
+        job.gameId,
+        job.gameName,
+        job.elfPrefix || 'XX.',
+        job.launcherMode === 'popsloader' ? 'popsloader' : 'popstarter',
+      );
+    } finally {
+      window.libraryAPI.removeAllConvertEmberProgressListeners();
+    }
+  }
+
+  private async runPs1ConvertToEmberJob(job: ImportJob) {
+    window.libraryAPI.onConvertVcdToEmberProgress((progress) =>
+      this.patchJob(job.id, {
+        percent: progress.percent,
+        stage: progress.stage,
+      }),
+    );
+    try {
+      return await window.libraryAPI.convertVcdToEmber(
+        job.filePath,
+        job.gameId,
+        job.gameName,
+        job.launcherFolder,
+      );
+    } finally {
+      window.libraryAPI.removeAllConvertVcdToEmberProgressListeners();
+    }
   }
 
   private async runZsoJob(job: ImportJob) {

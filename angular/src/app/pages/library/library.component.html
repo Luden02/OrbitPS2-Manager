@@ -116,11 +116,31 @@
                   <i-lucide name="refresh-cw" size="16"></i-lucide>Convert All PS1 games to RiptOPL/POPSLoader
                 </a>
               </li>
+              <li>
+                <a (click)="convertAllPs1ToEmber()">
+                  <i-lucide name="refresh-cw" size="16"></i-lucide>Convert All PS1 games to Ember
+                </a>
+              </li>
             }
             @if (isActive('PS1')) {
               <li>
                 <a (click)="convertAllPs1ToPopstarter()">
                   <i-lucide name="refresh-cw" size="16"></i-lucide>Convert All PS1 games to OPL/Popstarter
+                </a>
+              </li>
+              <li>
+                <a (click)="convertAllPs1ToEmber()">
+                  <i-lucide name="refresh-cw" size="16"></i-lucide>Convert All PS1 games to Ember
+                </a>
+              </li>
+              <li>
+                <a (click)="convertAllEmberToPopsLoader()">
+                  <i-lucide name="refresh-cw" size="16"></i-lucide>Convert All Ember games to POPSLoader
+                </a>
+              </li>
+              <li>
+                <a (click)="convertAllEmberToPopstarter()">
+                  <i-lucide name="refresh-cw" size="16"></i-lucide>Convert All Ember games to POPStarter
                 </a>
               </li>
             }

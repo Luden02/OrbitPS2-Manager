@@ -8,6 +8,7 @@ import {
   convertPs1LauncherToPopstarter,
   normalizeRiptOplPs1Storage,
 } from "../services/rename.service";
+import { convertEmberGameToVcd, convertVcdGameToEmber } from "../services/ps1-import.service";
 
 export function registerRenameIpc(): void {
   ipcMain.handle(
@@ -139,6 +140,100 @@ export function registerRenameIpc(): void {
         elfPrefix,
         (percent, stage) => {
           event.sender.send("convert-ps1-popstarter-progress", { percent, stage });
+        }
+      );
+    }
+  );
+
+  ipcMain.handle(
+    "convert-ember-to-vcd",
+    async (
+      event,
+      emberFolderPath: string,
+      gameId: string,
+      gameName: string,
+      elfPrefix: string,
+      launcherMode: "popstarter" | "popsloader"
+    ) => {
+      const settings = getSettings();
+      if (!settings.lastDirectory) {
+        return { success: false, message: "No mounted library is available for conversion." };
+      }
+
+      const root = path.resolve(settings.lastDirectory);
+      const sourcePath = path.resolve(emberFolderPath);
+      const equalPath = (a: string, b: string) =>
+        process.platform === "win32"
+          ? a.toLocaleLowerCase() === b.toLocaleLowerCase()
+          : a === b;
+
+      const { defaultGames, configuredGames } = getEmberGamesDirs(settings.lastDirectory);
+      const sourceAllowed =
+        equalPath(path.dirname(sourcePath), defaultGames) ||
+        (!!configuredGames && equalPath(path.dirname(sourcePath), configuredGames));
+      if (!sourceAllowed) {
+        return { success: false, message: "Ember game path is outside the configured games directory." };
+      }
+
+      return convertEmberGameToVcd(
+        sourcePath,
+        root,
+        gameId,
+        gameName,
+        elfPrefix,
+        launcherMode,
+        (percent, stage) => {
+          event.sender.send("convert-ember-progress", { percent, stage });
+        }
+      );
+    }
+  );
+
+  ipcMain.handle(
+    "convert-vcd-to-ember",
+    async (
+      event,
+      vcdPath: string,
+      gameId: string,
+      gameName: string,
+      launcherFolder?: string
+    ) => {
+      const settings = getSettings();
+      if (!settings.lastDirectory) {
+        return { success: false, message: "No mounted library is available for conversion." };
+      }
+
+      const root = path.resolve(settings.lastDirectory);
+      const sourcePath = path.resolve(vcdPath);
+      const equalPath = (a: string, b: string) =>
+        process.platform === "win32"
+          ? a.toLocaleLowerCase() === b.toLocaleLowerCase()
+          : a === b;
+
+      const sourceAllowed =
+        equalPath(path.dirname(sourcePath), path.join(root, "POPS")) &&
+        path.extname(sourcePath).toLocaleLowerCase() === ".vcd";
+      if (!sourceAllowed) {
+        return { success: false, message: "VCD path is outside the mounted library." };
+      }
+
+      let resolvedLauncherFolder: string | undefined;
+      if (launcherFolder) {
+        const launcherPath = path.resolve(launcherFolder);
+        if (!equalPath(path.dirname(launcherPath), path.join(root, "APPS"))) {
+          return { success: false, message: "APPS launcher path is outside the mounted library." };
+        }
+        resolvedLauncherFolder = launcherPath;
+      }
+
+      return convertVcdGameToEmber(
+        sourcePath,
+        root,
+        gameId,
+        gameName,
+        resolvedLauncherFolder,
+        (percent, stage) => {
+          event.sender.send("convert-vcd-to-ember-progress", { percent, stage });
         }
       );
     }

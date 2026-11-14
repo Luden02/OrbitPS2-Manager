@@ -128,6 +128,54 @@ function buildLibraryAPI() {
     removeAllConvertPs1PopstarterProgressListeners: () => {
       ipcRenderer.removeAllListeners("convert-ps1-popstarter-progress");
     },
+    convertEmberToVcd: (
+      emberFolderPath: string,
+      gameId: string,
+      gameName: string,
+      elfPrefix: string,
+      launcherMode: "popstarter" | "popsloader"
+    ) =>
+      ipcRenderer.invoke(
+        "convert-ember-to-vcd",
+        emberFolderPath,
+        gameId,
+        gameName,
+        elfPrefix,
+        launcherMode
+      ),
+    onConvertEmberProgress: (
+      callback: (progress: { percent: number; stage: string }) => void
+    ) => {
+      ipcRenderer.on("convert-ember-progress", (_event, progress) =>
+        callback(progress)
+      );
+    },
+    removeAllConvertEmberProgressListeners: () => {
+      ipcRenderer.removeAllListeners("convert-ember-progress");
+    },
+    convertVcdToEmber: (
+      vcdPath: string,
+      gameId: string,
+      gameName: string,
+      launcherFolder?: string
+    ) =>
+      ipcRenderer.invoke(
+        "convert-vcd-to-ember",
+        vcdPath,
+        gameId,
+        gameName,
+        launcherFolder
+      ),
+    onConvertVcdToEmberProgress: (
+      callback: (progress: { percent: number; stage: string }) => void
+    ) => {
+      ipcRenderer.on("convert-vcd-to-ember-progress", (_event, progress) =>
+        callback(progress)
+      );
+    },
+    removeAllConvertVcdToEmberProgressListeners: () => {
+      ipcRenderer.removeAllListeners("convert-vcd-to-ember-progress");
+    },
     normalizeRiptOplPs1Storage: (params: {
       kind: "VCD" | "EMBER";
       sourcePath: string;
